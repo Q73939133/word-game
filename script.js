@@ -1,0 +1,1200 @@
+// ═══════════════════════════════════════════════════════════════════════════════
+// WORD CHAIN GAME — Full-featured version
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ─── State ───────────────────────────────────────────────────────────────────
+let gameHistory = [];
+let usedWords = new Set();
+let lastWord = '';
+let isProcessing = false;
+let playerName = '';
+let timerInterval;
+let timeLeft = 30;
+let initialTimeLimit = 30;
+let gameActive = false;
+let streakCount = 0;
+let highScore = parseInt(localStorage.getItem('wordChainHighScore')) || 0;
+let difficulty = 'normal';
+let pointsEarned = 0;
+let totalCorrectWords = 0;
+
+// Game mode: 'qbit' or 'pvp'
+let gameMode = 'qbit';
+let player2Name = '';
+let currentPlayer = 1; // 1 or 2 in PvP
+let player1Points = 0;
+let player2Points = 0;
+let player1Words = 0;
+let player2Words = 0;
+
+// Power-ups
+let powerUps = { freeze: 0, double: 0, skip: 0 };
+let doublePointsActive = false;
+let timerFrozen = false;
+let freezeTimeout = null;
+
+// Word definition cache
+const definitionCache = {};
+
+// Sound
+let soundMuted = localStorage.getItem('wordChainMuted') === 'true';
+let audioCtx = null;
+
+// ─── Difficulty Config ───────────────────────────────────────────────────────
+const DIFFICULTY_CONFIG = {
+    easy: {
+        label: 'Easy', color: '#4ade80', icon: '🌿',
+        timeMultiplier: 1.3, pointsMultiplier: 1,
+        hintCost: 0, hintCostLabel: 'Free',
+        qbitPoolSize: 30, qbitStrategy: 'random',
+        minWordLength: 1, resetStreakOnInvalid: false,
+        description: 'Relaxed — free hints, forgiving rules'
+    },
+    normal: {
+        label: 'Normal', color: '#facc15', icon: '⚡',
+        timeMultiplier: 1, pointsMultiplier: 1.5,
+        hintCost: 5, hintCostLabel: '−5 pts',
+        qbitPoolSize: 50, qbitStrategy: 'first',
+        minWordLength: 1, resetStreakOnInvalid: true,
+        description: 'Balanced challenge — standard rules'
+    },
+    hard: {
+        label: 'Hard', color: '#f87171', icon: '🔥',
+        timeMultiplier: 0.7, pointsMultiplier: 2,
+        hintCost: 10, hintCostLabel: '−10 pts',
+        qbitPoolSize: 100, qbitStrategy: 'longest',
+        minWordLength: 4, resetStreakOnInvalid: true,
+        description: 'Competitive — smart Qbit, 4-letter minimum'
+    }
+};
+
+function getDiffConfig() {
+    return DIFFICULTY_CONFIG[difficulty] || DIFFICULTY_CONFIG.normal;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SOUND EFFECTS (Web Audio API)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function getAudioContext() {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    return audioCtx;
+}
+
+function playTone(freq, duration = 0.15, type = 'sine', gain = 0.12) {
+    if (soundMuted) return;
+    try {
+        const ctx = getAudioContext();
+        const osc = ctx.createOscillator();
+        const g = ctx.createGain();
+        osc.type = type;
+        osc.frequency.value = freq;
+        g.gain.value = gain;
+        g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+        osc.connect(g);
+        g.connect(ctx.destination);
+        osc.start(ctx.currentTime);
+        osc.stop(ctx.currentTime + duration);
+    } catch (e) { /* ignore audio errors */ }
+}
+
+function playCorrectSound() {
+    playTone(523, 0.1); // C5
+    setTimeout(() => playTone(659, 0.1), 80); // E5
+    setTimeout(() => playTone(784, 0.15), 160); // G5
+}
+
+function playWrongSound() {
+    playTone(200, 0.25, 'sawtooth', 0.08);
+}
+
+function playQbitSound() {
+    playTone(440, 0.08, 'triangle', 0.06);
+    setTimeout(() => playTone(550, 0.1, 'triangle', 0.06), 100);
+}
+
+function playStreakSound() {
+    [523, 659, 784, 1047].forEach((f, i) => {
+        setTimeout(() => playTone(f, 0.12, 'sine', 0.1), i * 70);
+    });
+}
+
+function playAchievementSound() {
+    [784, 988, 1175, 1319].forEach((f, i) => {
+        setTimeout(() => playTone(f, 0.2, 'sine', 0.1), i * 120);
+    });
+}
+
+function playWinSound() {
+    const notes = [523, 659, 784, 1047, 784, 1047, 1319];
+    notes.forEach((f, i) => {
+        setTimeout(() => playTone(f, 0.2, 'sine', 0.12), i * 100);
+    });
+}
+
+function playLoseSound() {
+    [400, 350, 300, 250].forEach((f, i) => {
+        setTimeout(() => playTone(f, 0.3, 'sawtooth', 0.06), i * 150);
+    });
+}
+
+function playTickSound() {
+    playTone(1000, 0.05, 'square', 0.04);
+}
+
+function playPowerUpSound() {
+    playTone(600, 0.1, 'sine', 0.1);
+    setTimeout(() => playTone(900, 0.15, 'sine', 0.1), 80);
+    setTimeout(() => playTone(1200, 0.2, 'sine', 0.1), 160);
+}
+
+function toggleMute() {
+    soundMuted = !soundMuted;
+    localStorage.setItem('wordChainMuted', soundMuted);
+    const btn = document.getElementById('muteBtn');
+    btn.textContent = soundMuted ? '🔇' : '🔊';
+    btn.title = soundMuted ? 'Unmute' : 'Mute';
+    if (!soundMuted) playTone(880, 0.1);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// CONFETTI
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function launchConfetti(duration = 3000, intensity = 1) {
+    const canvas = document.createElement('canvas');
+    canvas.id = 'confettiCanvas';
+    canvas.style.cssText = 'position:fixed;inset:0;z-index:99999;pointer-events:none;';
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    document.body.appendChild(canvas);
+    const ctx = canvas.getContext('2d');
+
+    const colors = ['#6366f1', '#22d3ee', '#4ade80', '#facc15', '#f87171', '#a78bfa', '#fb923c'];
+    const particles = [];
+    const count = Math.floor(80 * intensity);
+
+    for (let i = 0; i < count; i++) {
+        particles.push({
+            x: Math.random() * canvas.width,
+            y: Math.random() * canvas.height * -1,
+            w: Math.random() * 10 + 5,
+            h: Math.random() * 6 + 3,
+            color: colors[Math.floor(Math.random() * colors.length)],
+            vx: (Math.random() - 0.5) * 4,
+            vy: Math.random() * 3 + 2,
+            rot: Math.random() * 360,
+            rotSpeed: (Math.random() - 0.5) * 10,
+            opacity: 1
+        });
+    }
+
+    const start = Date.now();
+    function animate() {
+        const elapsed = Date.now() - start;
+        if (elapsed > duration) {
+            canvas.remove();
+            return;
+        }
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const fadeStart = duration * 0.7;
+        particles.forEach(p => {
+            p.x += p.vx;
+            p.y += p.vy;
+            p.vy += 0.05;
+            p.rot += p.rotSpeed;
+            p.opacity = elapsed > fadeStart ? 1 - (elapsed - fadeStart) / (duration - fadeStart) : 1;
+
+            ctx.save();
+            ctx.translate(p.x, p.y);
+            ctx.rotate((p.rot * Math.PI) / 180);
+            ctx.globalAlpha = Math.max(0, p.opacity);
+            ctx.fillStyle = p.color;
+            ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+            ctx.restore();
+        });
+        requestAnimationFrame(animate);
+    }
+    animate();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// LEADERBOARD (localStorage)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function getLeaderboard() {
+    try {
+        return JSON.parse(localStorage.getItem('wordChainLeaderboard') || '[]');
+    } catch { return []; }
+}
+
+function saveToLeaderboard(name, score, diff, words) {
+    const board = getLeaderboard();
+    board.push({
+        name, score, difficulty: diff, words,
+        date: new Date().toLocaleDateString()
+    });
+    board.sort((a, b) => b.score - a.score);
+    if (board.length > 10) board.length = 10;
+    localStorage.setItem('wordChainLeaderboard', JSON.stringify(board));
+}
+
+function renderLeaderboard() {
+    const board = getLeaderboard();
+    const el = document.getElementById('leaderboardBody');
+    if (!el) return;
+
+    if (board.length === 0) {
+        el.innerHTML = '<tr><td colspan="5" class="empty-state">No scores yet — play a game!</td></tr>';
+        return;
+    }
+
+    const medals = ['🥇', '🥈', '🥉'];
+    el.innerHTML = board.map((entry, i) => {
+        const rank = medals[i] || `${i + 1}`;
+        const rowClass = i < 3 ? `rank-${i + 1}` : '';
+        return `<tr class="${rowClass}">
+            <td>${rank}</td>
+            <td>${entry.name}</td>
+            <td>${entry.score}</td>
+            <td>${entry.difficulty || '—'}</td>
+            <td>${entry.date}</td>
+        </tr>`;
+    }).join('');
+}
+
+function clearLeaderboard() {
+    if (confirm('Clear all leaderboard data?')) {
+        localStorage.removeItem('wordChainLeaderboard');
+        renderLeaderboard();
+        showToast('Leaderboard cleared', 'info');
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PLAYER STATISTICS (localStorage)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function getStats() {
+    try {
+        return JSON.parse(localStorage.getItem('wordChainStats') || '{}');
+    } catch { return {}; }
+}
+
+function saveStats(stats) {
+    localStorage.setItem('wordChainStats', JSON.stringify(stats));
+}
+
+function updateStatsAfterGame(won) {
+    const stats = getStats();
+    stats.totalGames = (stats.totalGames || 0) + 1;
+    stats.wins = (stats.wins || 0) + (won ? 1 : 0);
+    stats.losses = (stats.losses || 0) + (won ? 0 : 1);
+    stats.totalScore = (stats.totalScore || 0) + pointsEarned;
+    stats.totalWords = (stats.totalWords || 0) + totalCorrectWords;
+    if (streakCount > (stats.bestStreak || 0)) stats.bestStreak = streakCount;
+
+    // Find longest word from this game
+    const playerWords = gameHistory.filter(e => e.player !== 'Qbit').map(e => e.word);
+    const longestThisGame = playerWords.reduce((a, b) => a.length >= b.length ? a : b, '');
+    if (longestThisGame.length > (stats.longestWord || '').length) {
+        stats.longestWord = longestThisGame;
+    }
+
+    saveStats(stats);
+}
+
+function renderStats() {
+    const stats = getStats();
+    const total = stats.totalGames || 0;
+    const wins = stats.wins || 0;
+    const winRate = total > 0 ? Math.round((wins / total) * 100) : 0;
+    const avgScore = total > 0 ? Math.round((stats.totalScore || 0) / total) : 0;
+
+    const el = document.getElementById('statsContent');
+    if (!el) return;
+
+    el.innerHTML = `
+        <div class="stats-grid">
+            <div class="mini-stat">
+                <div class="mini-stat-value">${total}</div>
+                <div class="mini-stat-label">Games</div>
+            </div>
+            <div class="mini-stat">
+                <div class="mini-stat-value win-rate-circle" style="--pct:${winRate}">${winRate}%</div>
+                <div class="mini-stat-label">Win Rate</div>
+            </div>
+            <div class="mini-stat">
+                <div class="mini-stat-value">${avgScore}</div>
+                <div class="mini-stat-label">Avg Score</div>
+            </div>
+            <div class="mini-stat">
+                <div class="mini-stat-value">${stats.totalWords || 0}</div>
+                <div class="mini-stat-label">Total Words</div>
+            </div>
+            <div class="mini-stat">
+                <div class="mini-stat-value">${stats.bestStreak || 0}</div>
+                <div class="mini-stat-label">Best Streak</div>
+            </div>
+            <div class="mini-stat">
+                <div class="mini-stat-value longest-word">${stats.longestWord || '—'}</div>
+                <div class="mini-stat-label">Longest Word</div>
+            </div>
+        </div>
+    `;
+}
+
+function clearStats() {
+    if (confirm('Clear all statistics?')) {
+        localStorage.removeItem('wordChainStats');
+        renderStats();
+        showToast('Statistics cleared', 'info');
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// WORD DEFINITIONS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+async function showDefinition(word, targetEl) {
+    // Remove any existing tooltip
+    document.querySelectorAll('.def-tooltip').forEach(t => t.remove());
+
+    const tooltip = document.createElement('div');
+    tooltip.className = 'def-tooltip';
+    tooltip.innerHTML = '<div class="loading"></div> Looking up...';
+
+    // Position near the word tag
+    const rect = targetEl.getBoundingClientRect();
+    tooltip.style.left = `${rect.left}px`;
+    tooltip.style.top = `${rect.bottom + 6}px`;
+    document.body.appendChild(tooltip);
+
+    let definition = '';
+    if (definitionCache[word]) {
+        definition = definitionCache[word];
+    } else {
+        try {
+            const res = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${word}`);
+            if (res.ok) {
+                const data = await res.json();
+                const meanings = data[0]?.meanings || [];
+                if (meanings.length > 0) {
+                    const m = meanings[0];
+                    const partOfSpeech = m.partOfSpeech || '';
+                    const def = m.definitions?.[0]?.definition || 'No definition found';
+                    definition = `<em>${partOfSpeech}</em> — ${def}`;
+                } else {
+                    definition = 'No definition found';
+                }
+            } else {
+                definition = 'Definition not available';
+            }
+        } catch {
+            definition = 'Could not load definition';
+        }
+        definitionCache[word] = definition;
+    }
+
+    tooltip.innerHTML = `<strong>${word}</strong><br>${definition}`;
+
+    // Reposition if off-screen
+    requestAnimationFrame(() => {
+        const tRect = tooltip.getBoundingClientRect();
+        if (tRect.right > window.innerWidth - 10) {
+            tooltip.style.left = `${window.innerWidth - tRect.width - 10}px`;
+        }
+        if (tRect.bottom > window.innerHeight - 10) {
+            tooltip.style.top = `${rect.top - tRect.height - 6}px`;
+        }
+    });
+
+    // Close on click outside
+    const closeHandler = (e) => {
+        if (!tooltip.contains(e.target) && e.target !== targetEl) {
+            tooltip.remove();
+            document.removeEventListener('click', closeHandler);
+        }
+    };
+    setTimeout(() => document.addEventListener('click', closeHandler), 10);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// POWER-UPS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function updatePowerUpUI() {
+    document.getElementById('freezeCount').textContent = powerUps.freeze;
+    document.getElementById('doubleCount').textContent = powerUps.double;
+    document.getElementById('skipCount').textContent = powerUps.skip;
+
+    document.getElementById('freezeBtn').disabled = powerUps.freeze === 0 || !gameActive || timerFrozen;
+    document.getElementById('doubleBtn').disabled = powerUps.double === 0 || !gameActive || doublePointsActive;
+    document.getElementById('skipBtn').disabled = powerUps.skip === 0 || !gameActive || gameMode === 'pvp';
+}
+
+function checkPowerUpEarning() {
+    // Freeze: every 5 correct words
+    if (totalCorrectWords > 0 && totalCorrectWords % 5 === 0 && powerUps.freeze < 3) {
+        powerUps.freeze++;
+        showToast('❄️ Time Freeze earned!', 'powerup');
+        playPowerUpSound();
+    }
+    // Double: every streak of 3
+    if (streakCount > 0 && streakCount % 3 === 0 && powerUps.double < 3) {
+        powerUps.double++;
+        showToast('💎 Double Points earned!', 'powerup');
+        playPowerUpSound();
+    }
+    // Skip: score reaches 50, 100, 150...
+    const skipThreshold = (Math.floor(pointsEarned / 50)) > 0;
+    const prevSkipEarned = Math.floor((pointsEarned - (gameHistory.length > 0 ? gameHistory[gameHistory.length - 1].points || 0 : 0)) / 50);
+    const currSkipEarned = Math.floor(pointsEarned / 50);
+    if (currSkipEarned > prevSkipEarned && powerUps.skip < 3) {
+        powerUps.skip++;
+        showToast('🔄 Skip Turn earned!', 'powerup');
+        playPowerUpSound();
+    }
+    updatePowerUpUI();
+}
+
+function useFreeze() {
+    if (powerUps.freeze <= 0 || !gameActive || timerFrozen) return;
+    powerUps.freeze--;
+    timerFrozen = true;
+    clearInterval(timerInterval);
+    playPowerUpSound();
+    showToast('❄️ Timer frozen for 10s!', 'powerup');
+
+    const timerEl = document.getElementById('timer');
+    timerEl.classList.add('timer-frozen');
+
+    freezeTimeout = setTimeout(() => {
+        timerFrozen = false;
+        timerEl.classList.remove('timer-frozen');
+        if (gameActive) startTimerFromCurrent();
+    }, 10000);
+
+    updatePowerUpUI();
+}
+
+function useDouble() {
+    if (powerUps.double <= 0 || !gameActive || doublePointsActive) return;
+    powerUps.double--;
+    doublePointsActive = true;
+    playPowerUpSound();
+    showToast('💎 Next word earns 2× points!', 'powerup');
+    updatePowerUpUI();
+}
+
+async function useSkip() {
+    if (powerUps.skip <= 0 || !gameActive || gameMode === 'pvp') return;
+    powerUps.skip--;
+    playPowerUpSound();
+    showToast('🔄 Forcing Qbit to play a new word!', 'powerup');
+
+    isProcessing = true;
+    document.getElementById('submitButton').disabled = true;
+    showMessage('Qbit picks a new starting word... <div class="loading"></div>', 'info', true);
+
+    // Pick a random letter and get a Qbit word
+    const letters = 'abcdefghijklmnoprstw'; // common starting letters
+    const randomLetter = letters[Math.floor(Math.random() * letters.length)];
+    const qbitWord = await getQbitWord(randomLetter);
+    handleQbitTurn(qbitWord);
+    updatePowerUpUI();
+}
+
+function startTimerFromCurrent() {
+    gameActive = true;
+    updateTimerDisplay();
+    timerInterval = setInterval(() => {
+        timeLeft--;
+        updateTimerDisplay();
+        if (timeLeft <= 0) handleTimeout();
+    }, 1000);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// POINTS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function calculatePoints(word) {
+    let base = word.length;
+    base = Math.floor(base * getDiffConfig().pointsMultiplier);
+    if (doublePointsActive) {
+        base *= 2;
+        doublePointsActive = false;
+        updatePowerUpUI();
+    }
+    return base;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// GAME MODES
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function setGameMode(mode) {
+    gameMode = mode;
+    const p2Section = document.getElementById('player2Section');
+    const hintGroup = document.getElementById('hintGroup');
+
+    if (mode === 'pvp') {
+        p2Section.style.display = 'block';
+        hintGroup.style.display = 'none';
+    } else {
+        p2Section.style.display = 'none';
+        hintGroup.style.display = 'block';
+    }
+
+    // Update active tab
+    document.querySelectorAll('.mode-tab').forEach(tab => {
+        tab.classList.toggle('active', tab.dataset.mode === mode);
+    });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// GAME START
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function startGame() {
+    const name = document.getElementById('playerName').value.trim();
+    if (!name) { showToast('Please enter your name!', 'warning'); return; }
+
+    if (gameMode === 'pvp') {
+        const p2 = document.getElementById('player2Name').value.trim();
+        if (!p2) { showToast('Please enter Player 2 name!', 'warning'); return; }
+        player2Name = p2;
+    }
+
+    playerName = name;
+    difficulty = document.getElementById('difficulty').value;
+    const cfg = getDiffConfig();
+
+    initialTimeLimit = parseInt(document.getElementById('timeLimit').value);
+    initialTimeLimit = Math.floor(initialTimeLimit * cfg.timeMultiplier);
+    timeLeft = initialTimeLimit;
+    streakCount = 0;
+    pointsEarned = 0;
+    player1Points = 0;
+    player2Points = 0;
+    player1Words = 0;
+    player2Words = 0;
+    currentPlayer = 1;
+    powerUps = { freeze: 0, double: 0, skip: 0 };
+    doublePointsActive = false;
+    timerFrozen = false;
+
+    // UI transitions
+    document.getElementById('playerRegistration').style.display = 'none';
+    document.getElementById('gameArea').style.display = 'block';
+
+    if (gameMode === 'pvp') {
+        document.getElementById('playerDisplay').textContent = `${playerName} vs ${player2Name}`;
+        document.getElementById('pvpScoreboard').style.display = 'flex';
+        document.getElementById('p1Name').textContent = playerName;
+        document.getElementById('p2Name').textContent = player2Name;
+        document.getElementById('p1Score').textContent = '0';
+        document.getElementById('p2Score').textContent = '0';
+        document.getElementById('currentTurnDisplay').style.display = 'block';
+        document.getElementById('currentTurnName').textContent = playerName;
+        document.getElementById('hintButton').style.display = 'none';
+        document.getElementById('powerUpsBar').style.display = 'none';
+    } else {
+        document.getElementById('playerDisplay').textContent = playerName;
+        document.getElementById('pvpScoreboard').style.display = 'none';
+        document.getElementById('currentTurnDisplay').style.display = 'none';
+        document.getElementById('hintButton').style.display = '';
+        document.getElementById('powerUpsBar').style.display = 'flex';
+    }
+
+    document.getElementById('streakDisplay').textContent = 0;
+    document.getElementById('pointsDisplay').textContent = 0;
+    document.getElementById('highScoreDisplay').textContent = highScore;
+    document.getElementById('correctWordsCount').textContent = 0;
+
+    // Difficulty badge
+    const badge = document.getElementById('difficultyBadge');
+    badge.textContent = `${cfg.icon} ${cfg.label}`;
+    badge.style.background = cfg.color;
+    badge.style.color = cfg.color === '#facc15' ? '#1a1a2e' : '#fff';
+
+    // Hint label
+    const hintBtn = document.getElementById('hintButton');
+    hintBtn.textContent = cfg.hintCost === 0 ? '💡 Hint (Free)' : `💡 Hint (${cfg.hintCostLabel})`;
+
+    resetGameState();
+    startTimer();
+    updateUsedWordsDisplay();
+    updatePowerUpUI();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TIMER
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function startTimer() {
+    timeLeft = initialTimeLimit;
+    gameActive = true;
+    updateTimerDisplay();
+
+    timerInterval = setInterval(() => {
+        if (!timerFrozen) {
+            timeLeft--;
+            updateTimerDisplay();
+            // Tick sound when < 5s
+            if (timeLeft <= 5 && timeLeft > 0) playTickSound();
+            if (timeLeft <= 0) handleTimeout();
+        }
+    }, 1000);
+}
+
+function updateTimerDisplay() {
+    const minutes = Math.floor(timeLeft / 60);
+    const seconds = timeLeft % 60;
+    const timeString = minutes > 0 ? `${minutes}m ${seconds.toString().padStart(2, '0')}s` : `${seconds}s`;
+
+    const timerEl = document.getElementById('timer');
+    timerEl.textContent = timeString;
+
+    const pct = timeLeft / initialTimeLimit;
+    let cls = 'timer-value';
+    if (timerFrozen) cls += ' timer-frozen';
+    else if (pct > 0.5) cls += ' timer-ok';
+    else if (pct > 0.2) cls += ' timer-warning';
+    else cls += ' timer-danger';
+    timerEl.className = cls;
+}
+
+function handleTimeout() {
+    clearInterval(timerInterval);
+    gameActive = false;
+    playLoseSound();
+
+    if (gameMode === 'pvp') {
+        const loser = currentPlayer === 1 ? playerName : player2Name;
+        const winner = currentPlayer === 1 ? player2Name : playerName;
+        showMessage(`⏰ Time's up! ${loser} ran out of time — ${winner} wins!`, 'error');
+        updateStatsAfterGame(false);
+        launchConfetti(2000, 0.5);
+    } else {
+        showMessage("⏰ Time's up! Qbit wins!", 'error');
+        updateStatsAfterGame(false);
+        saveToLeaderboard(playerName, pointsEarned, getDiffConfig().label, totalCorrectWords);
+    }
+
+    document.getElementById('submitButton').disabled = true;
+    document.getElementById('hintButton').disabled = true;
+    showEndGameButtons();
+}
+
+function resetTimer() {
+    timeLeft = initialTimeLimit;
+    updateTimerDisplay();
+    if (timerInterval) clearInterval(timerInterval);
+    if (freezeTimeout) { clearTimeout(freezeTimeout); timerFrozen = false; }
+    startTimer();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// USED WORDS DISPLAY (clickable for definitions)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function updateUsedWordsDisplay() {
+    const el = document.getElementById('usedWords');
+    if (usedWords.size === 0) {
+        el.innerHTML = '<span class="empty-state">No words used yet</span>';
+        return;
+    }
+    el.innerHTML = '';
+    Array.from(usedWords).forEach(w => {
+        const tag = document.createElement('span');
+        tag.className = 'word-tag';
+        tag.textContent = w;
+        tag.title = 'Click for definition';
+        tag.addEventListener('click', (e) => {
+            e.stopPropagation();
+            showDefinition(w, tag);
+        });
+        el.appendChild(tag);
+    });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// WORD VALIDATION
+// ═══════════════════════════════════════════════════════════════════════════════
+
+async function checkWordExists(word) {
+    try {
+        const response = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${word}`);
+        return response.ok;
+    } catch (error) {
+        console.error('Error checking word:', error);
+        return false;
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// QBIT WORD (difficulty-aware)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+async function getQbitWord(lastLetter) {
+    const cfg = getDiffConfig();
+    try {
+        const response = await fetch(`https://api.datamuse.com/words?sp=${lastLetter}*&max=${cfg.qbitPoolSize}`);
+        const data = await response.json();
+        let possibleWords = data
+            .map(item => item.word.toLowerCase())
+            .filter(word => !usedWords.has(word) && /^[a-z]+$/.test(word));
+
+        if (possibleWords.length === 0) return null;
+
+        switch (cfg.qbitStrategy) {
+            case 'random':
+                return possibleWords[Math.floor(Math.random() * possibleWords.length)];
+            case 'longest':
+                possibleWords.sort((a, b) => b.length - a.length);
+                return possibleWords[0];
+            case 'first':
+            default:
+                return possibleWords[0];
+        }
+    } catch (error) {
+        console.error('Error fetching Qbit word:', error);
+        return null;
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SUBMIT WORD
+// ═══════════════════════════════════════════════════════════════════════════════
+
+async function submitWord() {
+    if (isProcessing || !gameActive) return;
+
+    const input = document.getElementById('wordInput');
+    const submitButton = document.getElementById('submitButton');
+    const word = input.value.trim().toLowerCase();
+    input.value = '';
+
+    if (!word) { showMessage('Please enter a word!', 'warning'); return; }
+
+    const cfg = getDiffConfig();
+
+    if (word.length < cfg.minWordLength) {
+        showMessage(`Words must be at least ${cfg.minWordLength} letters in Hard mode!`, 'warning');
+        playWrongSound();
+        return;
+    }
+
+    if (usedWords.has(word)) {
+        showMessage('That word has already been used!', 'warning');
+        playWrongSound();
+        return;
+    }
+
+    if (lastWord) {
+        const lastLetter = lastWord[lastWord.length - 1];
+        if (word[0] !== lastLetter) {
+            showMessage(`Your word must start with '${lastLetter.toUpperCase()}'!`, 'warning');
+            playWrongSound();
+            if (cfg.resetStreakOnInvalid) {
+                streakCount = 0;
+                document.getElementById('streakDisplay').textContent = streakCount;
+            }
+            return;
+        }
+    }
+
+    isProcessing = true;
+    submitButton.disabled = true;
+    showMessage('Checking word... <div class="loading"></div>', 'info', true);
+
+    const wordExists = await checkWordExists(word);
+    if (!wordExists) {
+        showMessage("Not a valid word! Try again.", 'error');
+        playWrongSound();
+        if (cfg.resetStreakOnInvalid) {
+            streakCount = 0;
+            document.getElementById('streakDisplay').textContent = streakCount;
+        }
+        isProcessing = false;
+        submitButton.disabled = false;
+        return;
+    }
+
+    // Valid word!
+    playCorrectSound();
+    totalCorrectWords++;
+    document.getElementById('correctWordsCount').textContent = totalCorrectWords;
+
+    const wordPoints = calculatePoints(word);
+    pointsEarned += wordPoints;
+    streakCount++;
+
+    // PvP scoring
+    if (gameMode === 'pvp') {
+        if (currentPlayer === 1) {
+            player1Points += wordPoints;
+            player1Words++;
+            document.getElementById('p1Score').textContent = player1Points;
+        } else {
+            player2Points += wordPoints;
+            player2Words++;
+            document.getElementById('p2Score').textContent = player2Points;
+        }
+    }
+
+    lastWord = word;
+    usedWords.add(word);
+    const currentName = gameMode === 'pvp' ? (currentPlayer === 1 ? playerName : player2Name) : playerName;
+    gameHistory.push({ player: currentName, word, points: wordPoints });
+    updateHistory();
+    updateUsedWordsDisplay();
+
+    // Streak bonus
+    if (streakCount >= 3) {
+        const streakBonus = Math.floor(wordPoints * 0.5);
+        pointsEarned += streakBonus;
+        if (gameMode === 'pvp') {
+            if (currentPlayer === 1) player1Points += streakBonus;
+            else player2Points += streakBonus;
+        }
+        playStreakSound();
+        showMessage(`+${wordPoints} pts (+${streakBonus} streak bonus) 🔥`, 'success');
+    } else {
+        showMessage(`+${wordPoints} pts ✓`, 'success');
+    }
+
+    // High score (solo mode)
+    if (gameMode === 'qbit' && pointsEarned > highScore) {
+        highScore = pointsEarned;
+        localStorage.setItem('wordChainHighScore', highScore);
+        document.getElementById('highScoreDisplay').textContent = highScore;
+    }
+
+    document.getElementById('streakDisplay').textContent = streakCount;
+    document.getElementById('pointsDisplay').textContent = pointsEarned;
+
+    checkAchievements(word);
+    checkPowerUpEarning();
+    resetTimer();
+
+    if (gameMode === 'pvp') {
+        // Switch players
+        currentPlayer = currentPlayer === 1 ? 2 : 1;
+        const nextName = currentPlayer === 1 ? playerName : player2Name;
+        document.getElementById('currentTurnName').textContent = nextName;
+        const lastLetter = word[word.length - 1].toUpperCase();
+        input.placeholder = `${nextName}: word starting with '${lastLetter}'...`;
+        input.focus();
+        isProcessing = false;
+        submitButton.disabled = false;
+    } else {
+        showMessage('Qbit is thinking... <div class="loading"></div>', 'info', true);
+        const qbitWord = await getQbitWord(word[word.length - 1]);
+        handleQbitTurn(qbitWord);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// HINT
+// ═══════════════════════════════════════════════════════════════════════════════
+
+async function getHint() {
+    if (!lastWord || !gameActive || gameMode === 'pvp') return;
+
+    const cfg = getDiffConfig();
+    const lastLetter = lastWord[lastWord.length - 1];
+
+    try {
+        const response = await fetch(`https://api.datamuse.com/words?sp=${lastLetter}*&max=10`);
+        const data = await response.json();
+        const hints = data
+            .map(item => item.word)
+            .filter(word => !usedWords.has(word) && word.length >= cfg.minWordLength)
+            .slice(0, 3);
+
+        if (hints.length > 0) {
+            showMessage(`💡 Try: ${hints.join(', ')}`, 'info');
+            pointsEarned = Math.max(0, pointsEarned - cfg.hintCost);
+            document.getElementById('pointsDisplay').textContent = pointsEarned;
+        } else {
+            showMessage('No hints available!', 'warning');
+        }
+    } catch {
+        showMessage('Could not fetch hints.', 'error');
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ACHIEVEMENTS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const achievements = {
+    'Vocabulary Master': { description: 'Use a word longer than 8 letters', earned: false, icon: '📖' },
+    'Streak Master': { description: 'Maintain a 5-word streak', earned: false, icon: '🔥' },
+    'Century Club': { description: 'Earn 100+ points', earned: false, icon: '💯' },
+    'Power Player': { description: 'Use all 3 power-up types', earned: false, icon: '⚡' },
+    'Word Collector': { description: 'Use 20 words in one game', earned: false, icon: '📚' }
+};
+
+const powerUpsUsed = { freeze: false, double: false, skip: false };
+
+function checkAchievements(word) {
+    if (!achievements['Vocabulary Master'].earned && word.length > 8) unlockAchievement('Vocabulary Master');
+    if (!achievements['Streak Master'].earned && streakCount >= 5) unlockAchievement('Streak Master');
+    if (!achievements['Century Club'].earned && pointsEarned >= 100) unlockAchievement('Century Club');
+    if (!achievements['Word Collector'].earned && totalCorrectWords >= 20) unlockAchievement('Word Collector');
+    if (!achievements['Power Player'].earned && powerUpsUsed.freeze && powerUpsUsed.double && powerUpsUsed.skip) {
+        unlockAchievement('Power Player');
+    }
+}
+
+function unlockAchievement(name) {
+    achievements[name].earned = true;
+    playAchievementSound();
+    showToast(`${achievements[name].icon} Achievement: ${name}!`, 'achievement');
+    launchConfetti(1500, 0.4);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// QBIT TURN
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function handleQbitTurn(qbitWord) {
+    const wordInput = document.getElementById('wordInput');
+    const submitButton = document.getElementById('submitButton');
+
+    if (qbitWord) {
+        lastWord = qbitWord;
+        usedWords.add(qbitWord);
+        gameHistory.push({ player: 'Qbit', word: qbitWord, points: 0 });
+        playQbitSound();
+        showMessage(`🤖 Qbit plays: <strong>${qbitWord}</strong>`, 'qbit');
+        updateUsedWordsDisplay();
+        resetTimer();
+
+        const lastLetter = qbitWord[qbitWord.length - 1].toUpperCase();
+        wordInput.placeholder = `Word starting with '${lastLetter}'...`;
+        wordInput.focus();
+    } else {
+        // Player wins
+        showMessage("🎉 Qbit couldn't find a word — You win!", 'success');
+        gameActive = false;
+        clearInterval(timerInterval);
+        playWinSound();
+        launchConfetti(4000, 1);
+        updateStatsAfterGame(true);
+        saveToLeaderboard(playerName, pointsEarned, getDiffConfig().label, totalCorrectWords);
+        showEndGameButtons();
+        wordInput.placeholder = 'Game Over!';
+    }
+
+    updateHistory();
+    isProcessing = false;
+    submitButton.disabled = false;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// HISTORY
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function updateHistory() {
+    const historyEl = document.getElementById('history');
+    if (gameHistory.length === 0) {
+        historyEl.innerHTML = '<span class="empty-state">Game history will appear here</span>';
+        return;
+    }
+    historyEl.innerHTML = gameHistory.map(entry => {
+        const isQbit = entry.player === 'Qbit';
+        const pts = entry.points > 0 ? ` <span class="pts-tag">+${entry.points}</span>` : '';
+        return `<div class="history-entry ${isQbit ? 'qbit-entry' : 'player-entry'}">
+            <span class="history-name">${entry.player}</span>
+            <span class="history-word">${entry.word}</span>${pts}
+        </div>`;
+    }).join('');
+    historyEl.scrollTop = historyEl.scrollHeight;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// END GAME
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function showEndGameButtons() {
+    document.getElementById('endGameActions').style.display = 'flex';
+}
+
+function resetGame() {
+    document.getElementById('playerRegistration').style.display = 'block';
+    document.getElementById('gameArea').style.display = 'none';
+    document.getElementById('endGameActions').style.display = 'none';
+    resetGameState();
+    renderLeaderboard();
+    renderStats();
+}
+
+function resetGameState() {
+    gameHistory = [];
+    usedWords = new Set();
+    lastWord = '';
+    isProcessing = false;
+    totalCorrectWords = 0;
+    powerUps = { freeze: 0, double: 0, skip: 0 };
+    doublePointsActive = false;
+    timerFrozen = false;
+    if (freezeTimeout) clearTimeout(freezeTimeout);
+
+    // Reset achievements for next game
+    Object.keys(achievements).forEach(k => achievements[k].earned = false);
+
+    document.getElementById('correctWordsCount').textContent = '0';
+    updateHistory();
+    updateUsedWordsDisplay();
+    document.getElementById('message').textContent = '';
+    document.getElementById('message').className = 'message';
+    document.getElementById('wordInput').value = '';
+    document.getElementById('wordInput').placeholder = 'Enter a word...';
+    document.getElementById('endGameActions').style.display = 'none';
+    document.getElementById('submitButton').disabled = false;
+    document.getElementById('hintButton').disabled = false;
+    document.getElementById('pvpScoreboard').style.display = 'none';
+    document.getElementById('currentTurnDisplay').style.display = 'none';
+
+    // Remove any tooltips/confetti
+    document.querySelectorAll('.def-tooltip, #confettiCanvas').forEach(e => e.remove());
+
+    window.scrollTo(0, 0);
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// UI HELPERS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function showMessage(html, type = 'info', isRaw = false) {
+    const el = document.getElementById('message');
+    el.innerHTML = html;
+    el.className = `message msg-${type}`;
+}
+
+function showToast(text, type = 'info') {
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    toast.textContent = text;
+    document.body.appendChild(toast);
+    requestAnimationFrame(() => toast.classList.add('toast-visible'));
+    setTimeout(() => {
+        toast.classList.remove('toast-visible');
+        setTimeout(() => toast.remove(), 300);
+    }, 3000);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PDF
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function generatePDF() {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+
+    doc.setFontSize(18);
+    doc.text('Word Chain Game — Match Summary', 20, 20);
+
+    doc.setFontSize(12);
+    doc.text(`Player: ${playerName}`, 20, 32);
+    doc.text(`Difficulty: ${getDiffConfig().label}`, 20, 40);
+    doc.text(`Points: ${pointsEarned}`, 20, 48);
+    doc.text(`Correct Words: ${totalCorrectWords}`, 120, 48);
+
+    if (gameMode === 'pvp') {
+        doc.text(`${playerName}: ${player1Points} pts | ${player2Name}: ${player2Points} pts`, 20, 56);
+    }
+
+    doc.setFontSize(10);
+    let y = gameMode === 'pvp' ? 68 : 62;
+    gameHistory.forEach((entry, i) => {
+        if (y > 280) { doc.addPage(); y = 20; }
+        const pts = entry.points > 0 ? ` (+${entry.points} pts)` : '';
+        doc.text(`${i + 1}. ${entry.player}: ${entry.word}${pts}`, 20, y);
+        y += 8;
+    });
+
+    const fileName = playerName.replace(/\s/g, '-').toLowerCase();
+    doc.save(`${fileName}-wordchain.pdf`);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// DIFFICULTY PREVIEW
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function updateDifficultyPreview() {
+    const sel = document.getElementById('difficulty');
+    const cfg = DIFFICULTY_CONFIG[sel.value];
+    const preview = document.getElementById('difficultyPreview');
+    if (preview) {
+        preview.innerHTML = `<span style="color:${cfg.color}">${cfg.icon} ${cfg.description}</span>`;
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TABS (leaderboard / stats)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function switchTab(tabName) {
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.tab === tabName);
+    });
+    document.querySelectorAll('.tab-panel').forEach(panel => {
+        panel.style.display = panel.id === `${tabName}Panel` ? 'block' : 'none';
+    });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// EVENT LISTENERS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+document.addEventListener('DOMContentLoaded', () => {
+    // Enter key handlers
+    document.getElementById('wordInput').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); submitWord(); }
+    });
+    document.getElementById('playerName').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); startGame(); }
+    });
+
+    // Difficulty preview
+    const diffSelect = document.getElementById('difficulty');
+    diffSelect.addEventListener('change', updateDifficultyPreview);
+    updateDifficultyPreview();
+
+    // Mute button init
+    const muteBtn = document.getElementById('muteBtn');
+    if (muteBtn) {
+        muteBtn.textContent = soundMuted ? '🔇' : '🔊';
+        muteBtn.title = soundMuted ? 'Unmute' : 'Mute';
+    }
+
+    // Mode tabs
+    document.querySelectorAll('.mode-tab').forEach(tab => {
+        tab.addEventListener('click', () => setGameMode(tab.dataset.mode));
+    });
+
+    // Tab buttons
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+    });
+
+    // Render leaderboard & stats
+    renderLeaderboard();
+    renderStats();
+
+    // Mobile viewport height
+    function setVH() {
+        const vh = window.innerHeight * 0.01;
+        document.documentElement.style.setProperty('--vh', `${vh}px`);
+    }
+    setVH();
+    window.addEventListener('resize', setVH);
+    window.addEventListener('orientationchange', () => setTimeout(setVH, 150));
+});
