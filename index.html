@@ -30,12 +30,13 @@
             </div>
             <div class="rules-content">
                 <ol>
-                    <li>Enter your name, pick a difficulty & time limit.</li>
+                    <li>Enter your name, pick a difficulty, time limit & min word length.</li>
                     <li>Type a valid English word and submit it.</li>
                     <li>Qbit responds with a word starting with the last letter of yours.</li>
                     <li>Your next word must start with Qbit's last letter.</li>
                     <li>No repeating words. Submit before the timer runs out!</li>
-                    <li>Earn power-ups: ❄️ Freeze, 💎 Double, 🔄 Skip!</li>
+                    <li>Earn power-ups: ❄️ Freeze, 💎 Double, 🔄 Skip, 🔤 Letter Pick!</li>
+                    <li>Use 🔤 Letter Pick to choose Qbit's starting letter!</li>
                     <li>Tap any used word to see its definition.</li>
                 </ol>
             </div>
@@ -68,6 +69,12 @@
                     <option value="hard">🔥 Hard</option>
                 </select>
                 <div id="difficultyPreview"></div>
+            </div>
+
+            <div class="form-group">
+                <label for="minWordLength">Min Word Length</label>
+                <input type="number" id="minWordLength" min="1" max="45" value="1" placeholder="e.g. 3">
+                <div id="minLengthPreview" class="field-preview">Words of any length accepted</div>
             </div>
 
             <div class="form-group">
@@ -191,6 +198,11 @@
                     title="Skip — new starting letter">
                     <span class="pu-icon">🔄</span>
                     <span class="pu-count" id="skipCount">0</span>
+                </button>
+                <button class="power-up-btn" id="letterPickBtn" onclick="useLetterPick()" disabled
+                    title="Choose Qbit's starting letter">
+                    <span class="pu-icon">🔤</span>
+                    <span class="pu-count" id="letterPickCount">0</span>
                 </button>
             </div>
 

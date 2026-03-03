@@ -28,10 +28,15 @@ let player1Words = 0;
 let player2Words = 0;
 
 // Power-ups
-let powerUps = { freeze: 0, double: 0, skip: 0 };
+let powerUps = { freeze: 0, double: 0, skip: 0, letterPick: 0 };
 let doublePointsActive = false;
 let timerFrozen = false;
 let freezeTimeout = null;
+let letterPickActive = false;
+let letterPickLetter = '';
+
+// Custom min word length
+let customMinWordLength = 1;
 
 // Word definition cache
 const definitionCache = {};
@@ -427,10 +432,12 @@ function updatePowerUpUI() {
     document.getElementById('freezeCount').textContent = powerUps.freeze;
     document.getElementById('doubleCount').textContent = powerUps.double;
     document.getElementById('skipCount').textContent = powerUps.skip;
+    document.getElementById('letterPickCount').textContent = powerUps.letterPick;
 
     document.getElementById('freezeBtn').disabled = powerUps.freeze === 0 || !gameActive || timerFrozen;
     document.getElementById('doubleBtn').disabled = powerUps.double === 0 || !gameActive || doublePointsActive;
     document.getElementById('skipBtn').disabled = powerUps.skip === 0 || !gameActive || gameMode === 'pvp';
+    document.getElementById('letterPickBtn').disabled = powerUps.letterPick === 0 || !gameActive || letterPickActive || gameMode === 'pvp';
 }
 
 function checkPowerUpEarning() {
@@ -453,6 +460,12 @@ function checkPowerUpEarning() {
     if (currSkipEarned > prevSkipEarned && powerUps.skip < 3) {
         powerUps.skip++;
         showToast('🔄 Skip Turn earned!', 'powerup');
+        playPowerUpSound();
+    }
+    // Letter Pick: every 4 correct words
+    if (totalCorrectWords > 0 && totalCorrectWords % 4 === 0 && powerUps.letterPick < 3) {
+        powerUps.letterPick++;
+        showToast('🔤 Letter Pick earned!', 'powerup');
         playPowerUpSound();
     }
     updatePowerUpUI();
@@ -502,6 +515,76 @@ async function useSkip() {
     const randomLetter = letters[Math.floor(Math.random() * letters.length)];
     const qbitWord = await getQbitWord(randomLetter);
     handleQbitTurn(qbitWord);
+    updatePowerUpUI();
+}
+
+function useLetterPick() {
+    if (powerUps.letterPick <= 0 || !gameActive || letterPickActive || gameMode === 'pvp') return;
+    showLetterPickModal();
+}
+
+function showLetterPickModal() {
+    // Remove existing modal if any
+    const existing = document.getElementById('letterPickModal');
+    if (existing) existing.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'letterPickModal';
+    overlay.className = 'lp-overlay';
+
+    const modal = document.createElement('div');
+    modal.className = 'lp-modal';
+
+    const title = document.createElement('div');
+    title.className = 'lp-title';
+    title.textContent = '🔤 Pick a Letter';
+
+    const subtitle = document.createElement('div');
+    subtitle.className = 'lp-subtitle';
+    subtitle.textContent = "Choose Qbit's next starting letter";
+
+    const grid = document.createElement('div');
+    grid.className = 'lp-grid';
+
+    for (let i = 0; i < 26; i++) {
+        const letter = String.fromCharCode(65 + i);
+        const btn = document.createElement('button');
+        btn.className = 'lp-letter-btn';
+        btn.textContent = letter;
+        btn.addEventListener('click', () => {
+            selectLetterPick(letter.toLowerCase());
+            overlay.remove();
+        });
+        grid.appendChild(btn);
+    }
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'lp-cancel-btn';
+    cancelBtn.textContent = '✕ Cancel';
+    cancelBtn.addEventListener('click', () => overlay.remove());
+
+    modal.appendChild(title);
+    modal.appendChild(subtitle);
+    modal.appendChild(grid);
+    modal.appendChild(cancelBtn);
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+
+    // Close on overlay click
+    overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) overlay.remove();
+    });
+
+    // Animate in
+    requestAnimationFrame(() => overlay.classList.add('active'));
+}
+
+function selectLetterPick(cleaned) {
+    powerUps.letterPick--;
+    letterPickActive = true;
+    letterPickLetter = cleaned;
+    playPowerUpSound();
+    showToast(`🔤 Qbit will start with '${cleaned.toUpperCase()}'!`, 'powerup');
     updatePowerUpUI();
 }
 
@@ -581,9 +664,18 @@ function startGame() {
     player1Words = 0;
     player2Words = 0;
     currentPlayer = 1;
-    powerUps = { freeze: 0, double: 0, skip: 0 };
+    powerUps = { freeze: 0, double: 0, skip: 0, letterPick: 0 };
     doublePointsActive = false;
     timerFrozen = false;
+    letterPickActive = false;
+    letterPickLetter = '';
+
+    // Read custom min word length
+    const minLenInput = document.getElementById('minWordLength');
+    if (minLenInput) {
+        const val = parseInt(minLenInput.value) || 1;
+        customMinWordLength = Math.max(1, Math.min(45, val));
+    }
 
     // UI transitions
     document.getElementById('playerRegistration').style.display = 'none';
@@ -747,6 +839,12 @@ async function getQbitWord(lastLetter) {
             .map(item => item.word.toLowerCase())
             .filter(word => !usedWords.has(word) && /^[a-z]+$/.test(word));
 
+        // Enforce min word length for Qbit too
+        const effectiveMinLen = Math.max(cfg.minWordLength, customMinWordLength);
+        if (effectiveMinLen > 1) {
+            possibleWords = possibleWords.filter(word => word.length >= effectiveMinLen);
+        }
+
         if (possibleWords.length === 0) return null;
 
         switch (cfg.qbitStrategy) {
@@ -781,8 +879,9 @@ async function submitWord() {
 
     const cfg = getDiffConfig();
 
-    if (word.length < cfg.minWordLength) {
-        showMessage(`Words must be at least ${cfg.minWordLength} letters in Hard mode!`, 'warning');
+    const effectiveMinLen = Math.max(cfg.minWordLength, customMinWordLength);
+    if (word.length < effectiveMinLen) {
+        showMessage(`Words must be at least ${effectiveMinLen} letters long!`, 'warning');
         playWrongSound();
         return;
     }
@@ -891,8 +990,18 @@ async function submitWord() {
         isProcessing = false;
         submitButton.disabled = false;
     } else {
-        showMessage('Qbit is thinking... <div class="loading"></div>', 'info', true);
-        const qbitWord = await getQbitWord(word[word.length - 1]);
+        // Check if Letter Pick is active
+        let qbitStartLetter = word[word.length - 1];
+        if (letterPickActive && letterPickLetter) {
+            qbitStartLetter = letterPickLetter;
+            showMessage(`🔤 Qbit must start with '${qbitStartLetter.toUpperCase()}'! Thinking... <div class="loading"></div>`, 'info', true);
+            letterPickActive = false;
+            letterPickLetter = '';
+            updatePowerUpUI();
+        } else {
+            showMessage('Qbit is thinking... <div class="loading"></div>', 'info', true);
+        }
+        const qbitWord = await getQbitWord(qbitStartLetter);
         handleQbitTurn(qbitWord);
     }
 }
@@ -912,7 +1021,7 @@ async function getHint() {
         const data = await response.json();
         const hints = data
             .map(item => item.word)
-            .filter(word => !usedWords.has(word) && word.length >= cfg.minWordLength)
+            .filter(word => !usedWords.has(word) && word.length >= Math.max(cfg.minWordLength, customMinWordLength))
             .slice(0, 3);
 
         if (hints.length > 0) {
@@ -1040,10 +1149,15 @@ function resetGameState() {
     lastWord = '';
     isProcessing = false;
     totalCorrectWords = 0;
-    powerUps = { freeze: 0, double: 0, skip: 0 };
+    powerUps = { freeze: 0, double: 0, skip: 0, letterPick: 0 };
     doublePointsActive = false;
     timerFrozen = false;
+    letterPickActive = false;
+    letterPickLetter = '';
     if (freezeTimeout) clearTimeout(freezeTimeout);
+
+    // Remove any letter pick modal
+    document.querySelectorAll('.letter-pick-overlay').forEach(e => e.remove());
 
     // Reset achievements for next game
     Object.keys(achievements).forEach(k => achievements[k].earned = false);
@@ -1094,34 +1208,91 @@ function showToast(text, type = 'info') {
 // PDF
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function generatePDF() {
+async function generatePDF() {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF();
 
-    doc.setFontSize(18);
-    doc.text('Word Chain Game — Match Summary', 20, 20);
+    // Show loading toast
+    showToast('Generating PDF with definitions...', 'info');
 
+    // Fetch definitions for all words that aren't cached yet
+    const allWords = gameHistory.map(e => e.word);
+    const uncachedWords = allWords.filter(w => !definitionCache[w]);
+    await Promise.all(uncachedWords.map(async (word) => {
+        try {
+            const res = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${word}`);
+            if (res.ok) {
+                const data = await res.json();
+                const meanings = data[0]?.meanings || [];
+                if (meanings.length > 0) {
+                    const m = meanings[0];
+                    const partOfSpeech = m.partOfSpeech || '';
+                    const def = m.definitions?.[0]?.definition || 'No definition found';
+                    definitionCache[word] = `(${partOfSpeech}) ${def}`;
+                } else {
+                    definitionCache[word] = 'No definition found';
+                }
+            } else {
+                definitionCache[word] = 'Definition not available';
+            }
+        } catch {
+            definitionCache[word] = 'Could not load definition';
+        }
+    }));
+
+    // Title
+    doc.setFontSize(18);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Word Chain Game - Match Summary', 20, 20);
+
+    // Game info
     doc.setFontSize(12);
+    doc.setFont('helvetica', 'normal');
     doc.text(`Player: ${playerName}`, 20, 32);
     doc.text(`Difficulty: ${getDiffConfig().label}`, 20, 40);
     doc.text(`Points: ${pointsEarned}`, 20, 48);
     doc.text(`Correct Words: ${totalCorrectWords}`, 120, 48);
-
-    if (gameMode === 'pvp') {
-        doc.text(`${playerName}: ${player1Points} pts | ${player2Name}: ${player2Points} pts`, 20, 56);
+    if (customMinWordLength > 1) {
+        doc.text(`Min Word Length: ${customMinWordLength}`, 20, 56);
     }
 
-    doc.setFontSize(10);
-    let y = gameMode === 'pvp' ? 68 : 62;
+    if (gameMode === 'pvp') {
+        doc.text(`${playerName}: ${player1Points} pts | ${player2Name}: ${player2Points} pts`, 20, 64);
+    }
+
+    // Word entries with definitions
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'bold');
+    let y = gameMode === 'pvp' ? 78 : (customMinWordLength > 1 ? 70 : 62);
+    doc.text('Words Played:', 20, y);
+    y += 10;
+
+    doc.setFont('helvetica', 'normal');
     gameHistory.forEach((entry, i) => {
-        if (y > 280) { doc.addPage(); y = 20; }
+        if (y > 270) { doc.addPage(); y = 20; }
+
+        // Word line
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'bold');
         const pts = entry.points > 0 ? ` (+${entry.points} pts)` : '';
         doc.text(`${i + 1}. ${entry.player}: ${entry.word}${pts}`, 20, y);
-        y += 8;
+        y += 6;
+
+        // Definition line
+        const def = definitionCache[entry.word] || 'Definition not available';
+        doc.setFontSize(8);
+        doc.setFont('helvetica', 'italic');
+        doc.setTextColor(100, 100, 100);
+        // Wrap long definitions
+        const defLines = doc.splitTextToSize(`   ${def}`, 165);
+        doc.text(defLines, 24, y);
+        y += defLines.length * 5 + 4;
+        doc.setTextColor(0, 0, 0);
     });
 
     const fileName = playerName.replace(/\s/g, '-').toLowerCase();
     doc.save(`${fileName}-wordchain.pdf`);
+    showToast('PDF downloaded!', 'success');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

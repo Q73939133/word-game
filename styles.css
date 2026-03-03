@@ -993,6 +993,126 @@ button:disabled {
   border: var(--glass-border);
 }
 
+/* ─── Letter Pick Modal ───────────────────────────────────────────────────── */
+.lp-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10001;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+
+.lp-overlay.active {
+  opacity: 1;
+}
+
+.lp-modal {
+  background: var(--bg);
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  border-radius: var(--radius);
+  padding: 24px;
+  max-width: 340px;
+  width: 100%;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5), 0 0 40px rgba(99, 102, 241, 0.08);
+  animation: lpSlideIn 0.3s ease;
+}
+
+@keyframes lpSlideIn {
+  from {
+    opacity: 0;
+    transform: scale(0.92) translateY(20px);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.lp-title {
+  font-size: 1.15rem;
+  font-weight: 800;
+  text-align: center;
+  margin-bottom: 4px;
+  color: var(--text);
+}
+
+.lp-subtitle {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  text-align: center;
+  margin-bottom: 16px;
+}
+
+.lp-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.lp-letter-btn {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font);
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.lp-letter-btn:hover,
+.lp-letter-btn:focus {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.3), rgba(34, 211, 238, 0.2));
+  border-color: rgba(99, 102, 241, 0.5);
+  transform: scale(1.08);
+  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.25);
+  color: #fff;
+}
+
+.lp-letter-btn:active {
+  transform: scale(0.93);
+  background: rgba(99, 102, 241, 0.4);
+  border-color: rgba(99, 102, 241, 0.6);
+  color: #fff;
+}
+
+.lp-cancel-btn {
+  display: block;
+  width: 100%;
+  padding: 10px;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-family: var(--font);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.lp-cancel-btn:hover {
+  background: rgba(248, 113, 113, 0.1);
+  border-color: rgba(248, 113, 113, 0.3);
+  color: var(--danger);
+}
+
 /* ─── Footer ──────────────────────────────────────────────────────────────── */
 .footer {
   padding: 24px 16px;
@@ -1101,6 +1221,45 @@ button:disabled {
 
   .footer p {
     font-size: 0.7rem;
+  }
+
+  /* Letter Pick modal — bottom sheet on mobile */
+  .lp-overlay {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .lp-modal {
+    max-width: 100%;
+    border-radius: 20px 20px 0 0;
+    padding: 20px 16px calc(16px + env(safe-area-inset-bottom, 0px));
+    animation: lpSlideUp 0.3s ease;
+  }
+
+  @keyframes lpSlideUp {
+    from {
+      opacity: 0;
+      transform: translateY(100%);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .lp-grid {
+    grid-template-columns: repeat(7, 1fr);
+    gap: 5px;
+  }
+
+  .lp-letter-btn {
+    font-size: 0.85rem;
+    border-radius: 8px;
+  }
+
+  .lp-title {
+    font-size: 1.05rem;
   }
 }
 
