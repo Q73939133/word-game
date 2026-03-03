@@ -183,6 +183,18 @@
                 </div>
             </div>
 
+            <!-- Letter Frequency Chart -->
+            <div class="freq-chart-section" id="freqChartSection">
+                <div class="freq-chart-toggle"
+                    onclick="document.getElementById('freqChartSection').classList.toggle('open')">
+                    <span>📊 Letter Frequency</span>
+                    <span class="freq-chevron">▼</span>
+                </div>
+                <div class="freq-chart-body">
+                    <div class="freq-chart" id="freqChart"></div>
+                </div>
+            </div>
+
             <!-- Power-Ups -->
             <div class="power-ups-bar" id="powerUpsBar">
                 <button class="power-up-btn" id="freezeBtn" onclick="useFreeze()" disabled title="Freeze timer for 10s">
@@ -243,6 +255,7 @@
         <p>Developed by <a href="https://qknot.github.io/Portfolio/" target="_blank">Rahul Ghosh</a></p>
     </footer>
 
+    <script src="aiLetterSelector.js"></script>
     <script src="script.js"></script>
 </body>
 

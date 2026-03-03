@@ -35,6 +35,9 @@ let freezeTimeout = null;
 let letterPickActive = false;
 let letterPickLetter = '';
 
+// AI Letter Frequency Tracker (variance-minimized softmax selection)
+const letterFreqTracker = new LetterFrequencyTracker();
+
 // Custom min word length
 let customMinWordLength = 1;
 
@@ -67,9 +70,9 @@ const DIFFICULTY_CONFIG = {
         label: 'Hard', color: '#f87171', icon: '🔥',
         timeMultiplier: 0.7, pointsMultiplier: 2,
         hintCost: 10, hintCostLabel: '−10 pts',
-        qbitPoolSize: 100, qbitStrategy: 'longest',
+        qbitPoolSize: 100, qbitStrategy: 'balanced',
         minWordLength: 4, resetStreakOnInvalid: true,
-        description: 'Competitive — smart Qbit, 4-letter minimum'
+        description: 'Competitive — AI-balanced Qbit'
     }
 };
 
@@ -510,12 +513,13 @@ async function useSkip() {
     document.getElementById('submitButton').disabled = true;
     showMessage('Qbit picks a new starting word... <div class="loading"></div>', 'info', true);
 
-    // Pick a random letter and get a Qbit word
-    const letters = 'abcdefghijklmnoprstw'; // common starting letters
-    const randomLetter = letters[Math.floor(Math.random() * letters.length)];
+    // Use AI-recommended letter based on frequency balance (variance-minimized softmax)
+    const randomLetter = letterFreqTracker.getRecommendedLetter();
+    console.log(`🧠 AI Skip: recommended letter '${randomLetter}' based on frequency balance`);
     const qbitWord = await getQbitWord(randomLetter);
     handleQbitTurn(qbitWord);
     updatePowerUpUI();
+    renderFreqChart();
 }
 
 function useLetterPick() {
@@ -827,6 +831,53 @@ async function checkWordExists(word) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// LETTER FREQUENCY CHART
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Render the a–z letter frequency bar chart from the tracker.
+ * Builds pure-CSS bars dynamically — no external chart library needed.
+ */
+function renderFreqChart() {
+    const container = document.getElementById('freqChart');
+    if (!container) return;
+
+    const dist = letterFreqTracker.getDistribution();
+    const maxCount = Math.max(...dist.map(d => d.count), 1); // avoid /0
+
+    container.innerHTML = '';
+
+    dist.forEach(({ letter, count }) => {
+        const col = document.createElement('div');
+        col.className = 'freq-bar-col';
+
+        // Count label above bar
+        const countEl = document.createElement('div');
+        countEl.className = 'freq-bar-count';
+        countEl.textContent = count > 0 ? count : '';
+
+        // Bar
+        const bar = document.createElement('div');
+        bar.className = 'freq-bar';
+        const pct = (count / maxCount) * 100;
+        bar.style.height = count > 0 ? `${Math.max(pct, 4)}%` : '0%';
+        if (count === maxCount && count > 0) bar.classList.add('freq-bar-max');
+        if (count === 0) bar.classList.add('freq-bar-zero');
+        bar.title = `${letter.toUpperCase()}: ${count}`;
+
+        // Letter label below bar
+        const label = document.createElement('div');
+        label.className = 'freq-bar-label';
+        label.textContent = letter;
+
+        col.appendChild(countEl);
+        col.appendChild(bar);
+        col.appendChild(label);
+        container.appendChild(col);
+    });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // QBIT WORD (difficulty-aware)
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -853,6 +904,17 @@ async function getQbitWord(lastLetter) {
             case 'longest':
                 possibleWords.sort((a, b) => b.length - a.length);
                 return possibleWords[0];
+            case 'balanced':
+                // AI-balanced: use variance-minimized softmax to pick the word
+                // whose ending letter best balances the overall frequency distribution.
+                // This gives Qbit strategic foresight — it steers the game toward
+                // letters the player hasn't used much, creating balanced coverage.
+                const strategicWord = letterFreqTracker.selectStrategicWord(possibleWords);
+                if (strategicWord) {
+                    console.log(`🧠 AI Balanced: chose "${strategicWord}" (ends with '${strategicWord[strategicWord.length - 1]}')`);
+                    console.log('📊 Frequency distribution:', letterFreqTracker.getDistribution().filter(d => d.count > 0));
+                }
+                return strategicWord;
             case 'first':
             default:
                 return possibleWords[0];
@@ -926,6 +988,9 @@ async function submitWord() {
     playCorrectSound();
     totalCorrectWords++;
     document.getElementById('correctWordsCount').textContent = totalCorrectWords;
+    // Track player's starting letter for AI frequency balancing
+    letterFreqTracker.recordLetter(word[0]);
+    renderFreqChart();
 
     const wordPoints = calculatePoints(word);
     pointsEarned += wordPoints;
@@ -992,12 +1057,51 @@ async function submitWord() {
     } else {
         // Check if Letter Pick is active
         let qbitStartLetter = word[word.length - 1];
+        let chainBroken = false;
+
         if (letterPickActive && letterPickLetter) {
             qbitStartLetter = letterPickLetter;
             showMessage(`🔤 Qbit must start with '${qbitStartLetter.toUpperCase()}'! Thinking... <div class="loading"></div>`, 'info', true);
             letterPickActive = false;
             letterPickLetter = '';
             updatePowerUpUI();
+        } else if (getDiffConfig().qbitStrategy === 'balanced') {
+            // ── AI Chain-Break Logic ──────────────────────────────────────
+            // When frequency imbalance is high, Qbit may override the normal
+            // chain rule and pick a low-frequency letter to restore balance.
+            //
+            // How it works:
+            //   1. Compute current variance of the letter frequency distribution
+            //   2. If variance > threshold, there's a chance Qbit breaks the chain
+            //   3. The break probability scales with imbalance severity
+            //   4. The new letter is chosen via the AI's softmax-weighted selection
+            // ──────────────────────────────────────────────────────────────
+            const currentVariance = calculateVariance(letterFreqTracker.freq);
+            const totalWords = letterFreqTracker.freq.reduce((s, v) => s + v, 0);
+
+            // Only consider chain-break after at least 4 words have been played
+            // and when variance exceeds a meaningful threshold
+            const varianceThreshold = 0.3;
+            if (totalWords >= 4 && currentVariance > varianceThreshold) {
+                // Break probability scales from 20% to 60% as imbalance grows
+                const breakChance = Math.min(0.6, 0.2 + (currentVariance - varianceThreshold) * 0.15);
+
+                if (Math.random() < breakChance) {
+                    const aiLetter = letterFreqTracker.getRecommendedLetter();
+                    // Only break if AI recommends a different letter
+                    if (aiLetter !== qbitStartLetter) {
+                        console.log(`🧠 Chain-break! Variance=${currentVariance.toFixed(3)}, switching '${qbitStartLetter}' → '${aiLetter}'`);
+                        qbitStartLetter = aiLetter;
+                        chainBroken = true;
+                    }
+                }
+            }
+
+            if (chainBroken) {
+                showMessage(`🧠 Qbit detected imbalance! Switching to '<strong>${qbitStartLetter.toUpperCase()}</strong>'... <div class="loading"></div>`, 'info', true);
+            } else {
+                showMessage('Qbit is thinking... <div class="loading"></div>', 'info', true);
+            }
         } else {
             showMessage('Qbit is thinking... <div class="loading"></div>', 'info', true);
         }
@@ -1079,6 +1183,9 @@ function handleQbitTurn(qbitWord) {
         lastWord = qbitWord;
         usedWords.add(qbitWord);
         gameHistory.push({ player: 'Qbit', word: qbitWord, points: 0 });
+        // Track Qbit's starting letter for AI frequency balancing
+        letterFreqTracker.recordLetter(qbitWord[0]);
+        renderFreqChart();
         playQbitSound();
         showMessage(`🤖 Qbit plays: <strong>${qbitWord}</strong>`, 'qbit');
         updateUsedWordsDisplay();
@@ -1149,6 +1256,9 @@ function resetGameState() {
     lastWord = '';
     isProcessing = false;
     totalCorrectWords = 0;
+    // Reset AI letter frequency tracker for fresh game
+    letterFreqTracker.reset();
+    renderFreqChart();
     powerUps = { freeze: 0, double: 0, skip: 0, letterPick: 0 };
     doublePointsActive = false;
     timerFrozen = false;
