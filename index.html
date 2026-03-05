@@ -152,13 +152,6 @@
             <div class="current-turn" id="currentTurnDisplay" style="display:none">
                 🎯 <span id="currentTurnName"></span>'s turn
             </div>
-
-            <!-- Timer -->
-            <div class="timer-box glass-card">
-                <div class="timer-label">Time Remaining</div>
-                <div id="timer" class="timer-value timer-ok">30s</div>
-            </div>
-
             <!-- Stats -->
             <div class="game-stats">
                 <div class="stat-box">
@@ -194,7 +187,10 @@
                     <div class="freq-chart" id="freqChart"></div>
                 </div>
             </div>
-
+            <!-- Used Words -->
+            <div class="used-words" id="usedWords">
+                <span class="empty-state">No words used yet</span>
+            </div>
             <!-- Power-Ups -->
             <div class="power-ups-bar" id="powerUpsBar">
                 <button class="power-up-btn" id="freezeBtn" onclick="useFreeze()" disabled title="Freeze timer for 10s">
@@ -218,9 +214,11 @@
                 </button>
             </div>
 
-            <!-- Used Words -->
-            <div class="used-words" id="usedWords">
-                <span class="empty-state">No words used yet</span>
+
+             <!-- Timer -->
+            <div class="timer-box glass-card">
+                <div class="timer-label">Time Remaining</div>
+                <div id="timer" class="timer-value timer-ok">30s</div>
             </div>
 
             <!-- Controls -->
