@@ -73,7 +73,7 @@ const DIFFICULTY_CONFIG = {
         timeMultiplier: 0.7, pointsMultiplier: 2,
         hintCost: 10, hintCostLabel: '−10 pts',
         qbitPoolSize: 100, qbitStrategy: 'balanced',
-        minWordLength: 4, resetStreakOnInvalid: true,
+        minWordLength: 1, resetStreakOnInvalid: true,
         description: 'Competitive — AI-balanced Qbit'
     }
 };
