@@ -705,7 +705,7 @@ function startGame() {
     }
 
     document.getElementById('streakDisplay').textContent = 0;
-    document.getElementById('pointsDisplay').textContent = 0;
+    document.getElementById('pointsDisplay').textContent = '0 ৳';
     document.getElementById('highScoreDisplay').textContent = highScore;
     document.getElementById('correctWordsCount').textContent = 0;
 
@@ -1038,7 +1038,7 @@ async function submitWord() {
     }
 
     document.getElementById('streakDisplay').textContent = streakCount;
-    document.getElementById('pointsDisplay').textContent = pointsEarned;
+    document.getElementById('pointsDisplay').textContent = (totalCorrectWords * 0.01491).toFixed(4) + ' ৳';
 
     checkAchievements(word);
     checkPowerUpEarning();
@@ -1131,7 +1131,7 @@ async function getHint() {
         if (hints.length > 0) {
             showMessage(`💡 Try: ${hints.join(', ')}`, 'info');
             pointsEarned = Math.max(0, pointsEarned - cfg.hintCost);
-            document.getElementById('pointsDisplay').textContent = pointsEarned;
+            document.getElementById('pointsDisplay').textContent = (totalCorrectWords * 0.01491).toFixed(4) + ' ৳';
         } else {
             showMessage('No hints available!', 'warning');
         }
