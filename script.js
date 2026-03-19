@@ -18,8 +18,10 @@ let difficulty = 'normal';
 let pointsEarned = 0;
 let totalCorrectWords = 0;
 
-// Game mode: 'qbit' or 'pvp'
+// Game mode: 'qbit', 'pvp', or 'botvsbot'
 let gameMode = 'qbit';
+let botSpeed = 1500;
+let botTurnTimeout = null;
 let player2Name = '';
 let currentPlayer = 1; // 1 or 2 in PvP
 let player1Points = 0;
@@ -623,14 +625,25 @@ function calculatePoints(word) {
 
 function setGameMode(mode) {
     gameMode = mode;
+    const p1Section = document.getElementById('player1Section');
     const p2Section = document.getElementById('player2Section');
     const hintGroup = document.getElementById('hintGroup');
+    const botSpeedSection = document.getElementById('botSpeedSection');
 
     if (mode === 'pvp') {
+        p1Section.style.display = 'block';
         p2Section.style.display = 'block';
+        botSpeedSection.style.display = 'none';
+        hintGroup.style.display = 'none';
+    } else if (mode === 'botvsbot') {
+        p1Section.style.display = 'none';
+        p2Section.style.display = 'none';
+        botSpeedSection.style.display = 'block';
         hintGroup.style.display = 'none';
     } else {
+        p1Section.style.display = 'block';
         p2Section.style.display = 'none';
+        botSpeedSection.style.display = 'none';
         hintGroup.style.display = 'block';
     }
 
@@ -645,16 +658,22 @@ function setGameMode(mode) {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function startGame() {
-    const name = document.getElementById('playerName').value.trim();
-    if (!name) { showToast('Please enter your name!', 'warning'); return; }
+    if (gameMode === 'botvsbot') {
+        playerName = 'Qbit';
+        player2Name = 'QKnot';
+        botSpeed = parseInt(document.getElementById('botSpeed').value) || 1500;
+    } else {
+        const name = document.getElementById('playerName').value.trim();
+        if (!name) { showToast('Please enter your name!', 'warning'); return; }
 
-    if (gameMode === 'pvp') {
-        const p2 = document.getElementById('player2Name').value.trim();
-        if (!p2) { showToast('Please enter Player 2 name!', 'warning'); return; }
-        player2Name = p2;
+        if (gameMode === 'pvp') {
+            const p2 = document.getElementById('player2Name').value.trim();
+            if (!p2) { showToast('Please enter Player 2 name!', 'warning'); return; }
+            player2Name = p2;
+        }
+
+        playerName = name;
     }
-
-    playerName = name;
     difficulty = document.getElementById('difficulty').value;
     const cfg = getDiffConfig();
 
@@ -685,7 +704,7 @@ function startGame() {
     document.getElementById('playerRegistration').style.display = 'none';
     document.getElementById('gameArea').style.display = 'block';
 
-    if (gameMode === 'pvp') {
+    if (gameMode === 'pvp' || gameMode === 'botvsbot') {
         document.getElementById('playerDisplay').textContent = `${playerName} vs ${player2Name}`;
         document.getElementById('pvpScoreboard').style.display = 'flex';
         document.getElementById('p1Name').textContent = playerName;
@@ -696,6 +715,11 @@ function startGame() {
         document.getElementById('currentTurnName').textContent = playerName;
         document.getElementById('hintButton').style.display = 'none';
         document.getElementById('powerUpsBar').style.display = 'none';
+        if (gameMode === 'botvsbot') {
+            document.getElementById('wordInput').disabled = true;
+            document.getElementById('submitButton').disabled = true;
+            document.getElementById('wordInput').placeholder = '🤖 Bots are playing...';
+        }
     } else {
         document.getElementById('playerDisplay').textContent = playerName;
         document.getElementById('pvpScoreboard').style.display = 'none';
@@ -722,7 +746,148 @@ function startGame() {
     resetGameState();
     startTimer();
     updateUsedWordsDisplay();
+
+    // Start bot auto-play if botvsbot
+    if (gameMode === 'botvsbot') {
+        startBotGame();
+    }
     updatePowerUpUI();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// BOT vs BOT AUTO-PLAY
+// ═══════════════════════════════════════════════════════════════════════════════
+
+async function startBotGame() {
+    // Pick a random starting letter for the first move
+    const startLetter = String.fromCharCode(97 + Math.floor(Math.random() * 26));
+    showMessage(`🤖 ${playerName} starts — looking for a word starting with '${startLetter.toUpperCase()}'...`, 'info');
+
+    const firstWord = await getQbitWord(startLetter);
+    if (!firstWord) {
+        showMessage(`🤖 ${playerName} couldn't find a starting word! Trying again...`, 'warning');
+        // Try again with another letter
+        botTurnTimeout = setTimeout(() => startBotGame(), 1000);
+        return;
+    }
+
+    // Process the first word
+    processBotWord(firstWord);
+
+    // Schedule next bot's turn
+    botTurnTimeout = setTimeout(() => playBotTurn(), botSpeed);
+}
+
+async function playBotTurn() {
+    if (!gameActive) return;
+
+    const currentBotName = currentPlayer === 1 ? playerName : player2Name;
+    let startLetter = lastWord[lastWord.length - 1];
+    let chainBroken = false;
+
+    // AI Chain-Break Logic (same as Qbit turn in vs-Qbit mode)
+    if (getDiffConfig().qbitStrategy === 'balanced') {
+        const currentVariance = calculateVariance(letterFreqTracker.freq);
+        const totalWords = letterFreqTracker.freq.reduce((s, v) => s + v, 0);
+        const varianceThreshold = 0.3;
+
+        if (totalWords >= 4 && currentVariance > varianceThreshold) {
+            const breakChance = Math.min(0.6, 0.2 + (currentVariance - varianceThreshold) * 0.15);
+            if (Math.random() < breakChance) {
+                const aiLetter = letterFreqTracker.getRecommendedLetter();
+                if (aiLetter !== startLetter) {
+                    console.log(`🧠 Bot chain-break! Variance=${currentVariance.toFixed(3)}, switching '${startLetter}' → '${aiLetter}'`);
+                    startLetter = aiLetter;
+                    chainBroken = true;
+                }
+            }
+        }
+    }
+
+    if (chainBroken) {
+        showMessage(`🧠 ${currentBotName} detected imbalance! Switching to '<strong>${startLetter.toUpperCase()}</strong>'... <div class="loading"></div>`, 'info', true);
+    } else {
+        showMessage(`🤖 ${currentBotName} is thinking... <div class="loading"></div>`, 'info', true);
+    }
+
+    const word = await getQbitWord(startLetter);
+
+    if (!gameActive) return; // Game may have ended while fetching
+
+    if (!word) {
+        // This bot can't find a word — other bot wins
+        const winner = currentPlayer === 1 ? player2Name : playerName;
+        showMessage(`🎉 ${currentBotName} couldn't find a word — ${winner} wins!`, 'success');
+        gameActive = false;
+        clearInterval(timerInterval);
+        playWinSound();
+        launchConfetti(4000, 1);
+        document.getElementById('wordInput').disabled = false;
+        showEndGameButtons();
+        return;
+    }
+
+    processBotWord(word);
+
+    // Schedule next turn
+    botTurnTimeout = setTimeout(() => playBotTurn(), botSpeed);
+}
+
+function processBotWord(word) {
+    const currentBotName = currentPlayer === 1 ? playerName : player2Name;
+
+    playCorrectSound();
+    totalCorrectWords++;
+    document.getElementById('correctWordsCount').textContent = totalCorrectWords;
+    letterFreqTracker.recordLetter(word[0]);
+    renderFreqChart();
+
+    const wordPoints = calculatePoints(word);
+    pointsEarned += wordPoints;
+    streakCount++;
+
+    // Update per-player scores
+    if (currentPlayer === 1) {
+        player1Points += wordPoints;
+        player1Words++;
+        document.getElementById('p1Score').textContent = player1Points;
+    } else {
+        player2Points += wordPoints;
+        player2Words++;
+        document.getElementById('p2Score').textContent = player2Points;
+    }
+
+    lastWord = word;
+    usedWords.add(word);
+    gameHistory.push({ player: currentBotName, word, points: wordPoints });
+    updateHistory();
+    updateUsedWordsDisplay();
+
+    // Streak bonus
+    if (streakCount >= 3) {
+        const streakBonus = Math.floor(wordPoints * 0.5);
+        pointsEarned += streakBonus;
+        if (currentPlayer === 1) player1Points += streakBonus;
+        else player2Points += streakBonus;
+        playStreakSound();
+        showMessage(`🤖 ${currentBotName}: <strong>${word}</strong> +${wordPoints} pts (+${streakBonus} streak bonus) 🔥`, 'success', true);
+    } else {
+        showMessage(`🤖 ${currentBotName}: <strong>${word}</strong> +${wordPoints} pts ✓`, 'success', true);
+    }
+
+    document.getElementById('streakDisplay').textContent = streakCount;
+    document.getElementById('pointsDisplay').textContent = (totalCorrectWords * 0.01491).toFixed(4) + ' ৳';
+
+    // Switch players
+    currentPlayer = currentPlayer === 1 ? 2 : 1;
+    const nextName = currentPlayer === 1 ? playerName : player2Name;
+    document.getElementById('currentTurnName').textContent = nextName;
+
+    // Update PvP scores display
+    document.getElementById('p1Score').textContent = player1Points;
+    document.getElementById('p2Score').textContent = player2Points;
+
+    resetTimer();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -767,7 +932,22 @@ function handleTimeout() {
     gameActive = false;
     playLoseSound();
 
-    if (gameMode === 'pvp') {
+    // Clear bot auto-play
+    if (botTurnTimeout) { clearTimeout(botTurnTimeout); botTurnTimeout = null; }
+
+    if (gameMode === 'botvsbot') {
+        const winner = player1Points >= player2Points ? playerName : player2Name;
+        const loser = player1Points >= player2Points ? player2Name : playerName;
+        const winScore = Math.max(player1Points, player2Points);
+        const loseScore = Math.min(player1Points, player2Points);
+        if (player1Points === player2Points) {
+            showMessage(`⏰ Time's up! It's a draw! Both scored ${player1Points} pts`, 'info');
+        } else {
+            showMessage(`⏰ Time's up! ${winner} wins with ${winScore} pts vs ${loseScore} pts!`, 'success');
+        }
+        launchConfetti(3000, 0.7);
+        document.getElementById('wordInput').disabled = false;
+    } else if (gameMode === 'pvp') {
         const loser = currentPlayer === 1 ? playerName : player2Name;
         const winner = currentPlayer === 1 ? player2Name : playerName;
         showMessage(`⏰ Time's up! ${loser} ran out of time — ${winner} wins!`, 'error');
@@ -1265,6 +1445,7 @@ function resetGameState() {
     letterPickActive = false;
     letterPickLetter = '';
     if (freezeTimeout) clearTimeout(freezeTimeout);
+    if (botTurnTimeout) { clearTimeout(botTurnTimeout); botTurnTimeout = null; }
 
     // Remove any letter pick modal
     document.querySelectorAll('.letter-pick-overlay').forEach(e => e.remove());

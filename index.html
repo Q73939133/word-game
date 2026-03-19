@@ -49,9 +49,10 @@
             <div class="mode-tabs">
                 <button class="mode-tab active" data-mode="qbit">🤖 vs Qbit</button>
                 <button class="mode-tab" data-mode="pvp">👥 vs Player</button>
+                <button class="mode-tab" data-mode="botvsbot">🤖🤖 Bot vs Bot</button>
             </div>
 
-            <div class="form-group">
+            <div class="form-group" id="player1Section">
                 <label for="playerName">Player 1</label>
                 <input type="text" id="playerName" placeholder="Enter your name" autocomplete="off">
             </div>
@@ -59,6 +60,15 @@
             <div class="form-group" id="player2Section" style="display:none">
                 <label for="player2Name">Player 2</label>
                 <input type="text" id="player2Name" placeholder="Enter player 2 name" autocomplete="off">
+            </div>
+
+            <div class="form-group" id="botSpeedSection" style="display:none">
+                <label for="botSpeed">Bot Speed</label>
+                <select id="botSpeed">
+                    <option value="3000">🐢 Slow (3s)</option>
+                    <option value="1500" selected>⚡ Normal (1.5s)</option>
+                    <option value="500">🚀 Fast (0.5s)</option>
+                </select>
             </div>
 
             <div class="form-group">
@@ -160,7 +170,7 @@
                     <div class="stat-value" id="streakDisplay">0</div>
                 </div>
                 <div class="stat-box">
-                    <div class="stat-icon">🥩</div>
+                    <div class="stat-icon">৳</div>
                     <div class="stat-label">Salami</div>
                     <div class="stat-value" id="pointsDisplay">0 ৳</div>
                 </div>
