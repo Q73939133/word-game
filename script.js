@@ -44,6 +44,9 @@ const letterFreqTracker = new LetterFrequencyTracker();
 const qbitMarkov = new QbitMarkov();
 let selectedBot = 'classic'; // 'classic' or 'qbit_v01'
 
+// Training data source for Qbit v0.1: 'user', 'bot', or 'both'
+let qbitTrainingSource = localStorage.getItem('qbitTrainingSource') || 'both';
+
 // Custom min word length
 let customMinWordLength = 1;
 
@@ -53,6 +56,21 @@ const definitionCache = {};
 // Sound
 let soundMuted = localStorage.getItem('wordChainMuted') === 'true';
 let audioCtx = null;
+
+// ─── Qbit v0.1 Training Gate ─────────────────────────────────────────────────
+
+/**
+ * Conditionally learn a word based on the training data source setting.
+ * @param {string} word — The word to learn
+ * @param {'user'|'bot'} source — Who played the word
+ */
+function qbitLearn(word, source) {
+    if (qbitTrainingSource === 'both' ||
+        (qbitTrainingSource === 'user' && source === 'user') ||
+        (qbitTrainingSource === 'bot' && source === 'bot')) {
+        qbitMarkov.learn(word);
+    }
+}
 
 // ─── Difficulty Config ───────────────────────────────────────────────────────
 const DIFFICULTY_CONFIG = {
@@ -664,6 +682,7 @@ function setGameMode(mode) {
 function setSelectedBot(bot) {
     selectedBot = bot;
     const preview = document.getElementById('botSelectorPreview');
+    const trainingSection = document.getElementById('trainingSourceSection');
     if (preview) {
         if (bot === 'qbit_v01') {
             const stats = qbitMarkov.getStats();
@@ -671,6 +690,22 @@ function setSelectedBot(bot) {
         } else {
             preview.textContent = '🤖 Classic API-based bot';
         }
+    }
+    // Always show training source — Classic games also train Qbit v0.1
+    if (trainingSection) trainingSection.style.display = 'block';
+}
+
+function setTrainingSource(source) {
+    qbitTrainingSource = source;
+    localStorage.setItem('qbitTrainingSource', source);
+    const preview = document.getElementById('trainingSourcePreview');
+    if (preview) {
+        const labels = {
+            both: 'Learns from all words played',
+            user: 'Learns only from your words',
+            bot: 'Learns only from bot words'
+        };
+        preview.textContent = labels[source] || labels.both;
     }
 }
 
@@ -875,7 +910,7 @@ function processBotWord(word) {
     letterFreqTracker.recordLetter(word[0]);
     renderFreqChart();
     // Markov learning from bot-vs-bot words
-    qbitMarkov.learn(word);
+    qbitLearn(word, 'bot');
 
     const wordPoints = calculatePoints(word);
     pointsEarned += wordPoints;
@@ -1108,14 +1143,15 @@ async function getQbitWord(lastLetter) {
             console.log(`🧠 Qbit v0.1: Markov selected "${markovWord}" (${lastLetter} → ${markovWord[markovWord.length - 1]})`);
             return markovWord;
         }
-        // Fallback to API if word bank has no match
-        console.log(`🧠 Qbit v0.1: No Markov match for '${lastLetter}', falling back to API`);
+        // No Markov match — Qbit v0.1 loses (returns null, no API fallback)
+        console.log(`🧠 Qbit v0.1: No Markov match for '${lastLetter}' — giving up`);
+        return null;
     }
 
     // ── Classic Datamuse strategy ───────────────────────────────────────
     try {
-        const response = await fetch(`https://api.datamuse.com/words?sp=${lastLetter}*&max=${cfg.qbitPoolSize}`);
-        const data = await response.json();
+        let response = await fetch(`https://api.datamuse.com/words?sp=${lastLetter}*&max=${cfg.qbitPoolSize}`);
+        let data = await response.json();
         let possibleWords = data
             .map(item => item.word.toLowerCase())
             .filter(word => !usedWords.has(word) && /^[a-z]+$/.test(word));
@@ -1125,12 +1161,22 @@ async function getQbitWord(lastLetter) {
             possibleWords = possibleWords.filter(word => word.length >= effectiveMinLen);
         }
 
+        // Broader retry if the initial pool was too small
+        if (possibleWords.length === 0 && cfg.qbitPoolSize < 200) {
+            console.log(`🔄 Datamuse: No results with max=${cfg.qbitPoolSize}, retrying with max=200`);
+            response = await fetch(`https://api.datamuse.com/words?sp=${lastLetter}*&max=200`);
+            data = await response.json();
+            possibleWords = data
+                .map(item => item.word.toLowerCase())
+                .filter(word => !usedWords.has(word) && /^[a-z]+$/.test(word));
+            if (effectiveMinLen > 1) {
+                possibleWords = possibleWords.filter(word => word.length >= effectiveMinLen);
+            }
+        }
+
         if (possibleWords.length === 0) return null;
 
-        // If Qbit v0.1, also learn any API words we discover
-        if (selectedBot === 'qbit_v01') {
-            possibleWords.forEach(w => qbitMarkov.learn(w));
-        }
+
 
         switch (cfg.qbitStrategy) {
             case 'random':
@@ -1221,8 +1267,8 @@ async function submitWord() {
     // Track player's starting letter for AI frequency balancing
     letterFreqTracker.recordLetter(word[0]);
     renderFreqChart();
-    // Markov learning — learn from every valid word across all modes
-    qbitMarkov.learn(word);
+    // Markov learning — gated by training source setting
+    qbitLearn(word, 'user');
 
     const wordPoints = calculatePoints(word);
     pointsEarned += wordPoints;
@@ -1419,8 +1465,8 @@ function handleQbitTurn(qbitWord) {
         // Track Qbit's starting letter for AI frequency balancing
         letterFreqTracker.recordLetter(qbitWord[0]);
         renderFreqChart();
-        // Markov learning — learn from Qbit's own words
-        qbitMarkov.learn(qbitWord);
+        // Markov learning — gated by training source setting
+        qbitLearn(qbitWord, 'bot');
         playQbitSound();
         showMessage(`🤖 ${qbitLabel} plays: <strong>${qbitWord}</strong>`, 'qbit');
         updateUsedWordsDisplay();
@@ -1826,6 +1872,15 @@ document.addEventListener('DOMContentLoaded', () => {
     if (botSelector) {
         botSelector.addEventListener('change', () => setSelectedBot(botSelector.value));
         setSelectedBot(botSelector.value);
+    }
+
+    // Training source selector
+    const trainingSel = document.getElementById('trainingSource');
+    if (trainingSel) {
+        // Restore persisted value
+        trainingSel.value = qbitTrainingSource;
+        setTrainingSource(qbitTrainingSource);
+        trainingSel.addEventListener('change', () => setTrainingSource(trainingSel.value));
     }
 
     // Tab buttons

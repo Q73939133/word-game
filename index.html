@@ -71,6 +71,16 @@
                 <div id="botSelectorPreview" class="field-preview">🤖 Classic API-based bot</div>
             </div>
 
+            <div class="form-group" id="trainingSourceSection" style="display:none">
+                <label for="trainingSource">Training Data</label>
+                <select id="trainingSource">
+                    <option value="both">📊 User + Bot Data</option>
+                    <option value="user">👤 User Data Only</option>
+                    <option value="bot">🤖 Bot Data Only</option>
+                </select>
+                <div id="trainingSourcePreview" class="field-preview">Learns from all words played</div>
+            </div>
+
             <div class="form-group" id="botSpeedSection" style="display:none">
                 <label for="botSpeed">Bot Speed</label>
                 <select id="botSpeed">
