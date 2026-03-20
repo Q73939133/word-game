@@ -62,6 +62,15 @@
                 <input type="text" id="player2Name" placeholder="Enter player 2 name" autocomplete="off">
             </div>
 
+            <div class="form-group" id="botSelectorSection">
+                <label for="botSelector">Select Bot</label>
+                <select id="botSelector">
+                    <option value="classic">🤖 Qbit Classic</option>
+                    <option value="qbit_v01">🧠 Qbit v0.1 (Learning)</option>
+                </select>
+                <div id="botSelectorPreview" class="field-preview">🤖 Classic API-based bot</div>
+            </div>
+
             <div class="form-group" id="botSpeedSection" style="display:none">
                 <label for="botSpeed">Bot Speed</label>
                 <select id="botSpeed">
@@ -100,10 +109,11 @@
 
             <button id="startGameButton" class="btn-primary" onclick="startGame()">🎮 Start Game</button>
 
-            <!-- Tabs: Leaderboard / Stats -->
+            <!-- Tabs: Leaderboard / Stats / Qbit Brain -->
             <div class="info-tabs">
                 <button class="tab-btn active" data-tab="leaderboard">🏆 Leaderboard</button>
                 <button class="tab-btn" data-tab="stats">📊 Stats</button>
+                <button class="tab-btn" data-tab="qbitBrain">🧠 Qbit Brain</button>
             </div>
 
             <!-- Leaderboard Panel -->
@@ -133,6 +143,30 @@
                     <span class="empty-state">No stats yet — play a game!</span>
                 </div>
                 <button class="btn-sm btn-outline" onclick="clearStats()">Clear</button>
+            </div>
+
+            <!-- Bot Memory -->
+            <div class="bot-memory-section">
+                <button class="btn-sm btn-outline btn-danger-outline" onclick="clearBotMemory()">🧠 Clear Bot Memory</button>
+            </div>
+
+            <!-- Qbit Brain Panel -->
+            <div class="tab-panel" id="qbitBrainPanel" style="display:none">
+                <div class="brain-stats" id="brainStats"></div>
+                <div class="brain-section">
+                    <div class="brain-section-title">📊 Transition Matrix <span class="brain-subtitle">(first letter → last letter)</span></div>
+                    <div class="matrix-wrapper" id="matrixWrapper">
+                        <div class="matrix-container" id="matrixContainer">
+                            <span class="empty-state">No data yet — play some games!</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="brain-section">
+                    <div class="brain-section-title">📚 Word Bank <span class="brain-subtitle" id="wordBankCount"></span></div>
+                    <div class="wordbank-container" id="wordBankContainer">
+                        <span class="empty-state">No words learned yet</span>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -170,9 +204,9 @@
                     <div class="stat-value" id="streakDisplay">0</div>
                 </div>
                 <div class="stat-box">
-                    <div class="stat-icon">৳</div>
-                    <div class="stat-label">Salami</div>
-                    <div class="stat-value" id="pointsDisplay">0 ৳</div>
+                    <div class="stat-icon">⭐</div>
+                    <div class="stat-label">Points</div>
+                    <div class="stat-value" id="pointsDisplay">0</div>
                 </div>
                 <div class="stat-box">
                     <div class="stat-icon">🏆</div>
@@ -264,6 +298,7 @@
     </footer>
 
     <script src="aiLetterSelector.js"></script>
+    <script src="qbitMarkov.js"></script>
     <script src="script.js"></script>
 </body>
 

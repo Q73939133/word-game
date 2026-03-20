@@ -40,6 +40,10 @@ let letterPickLetter = '';
 // AI Letter Frequency Tracker (variance-minimized softmax selection)
 const letterFreqTracker = new LetterFrequencyTracker();
 
+// Qbit v0.1 Markov Chain learning bot
+const qbitMarkov = new QbitMarkov();
+let selectedBot = 'classic'; // 'classic' or 'qbit_v01'
+
 // Custom min word length
 let customMinWordLength = 1;
 
@@ -629,21 +633,25 @@ function setGameMode(mode) {
     const p2Section = document.getElementById('player2Section');
     const hintGroup = document.getElementById('hintGroup');
     const botSpeedSection = document.getElementById('botSpeedSection');
+    const botSelectorSection = document.getElementById('botSelectorSection');
 
     if (mode === 'pvp') {
         p1Section.style.display = 'block';
         p2Section.style.display = 'block';
         botSpeedSection.style.display = 'none';
+        if (botSelectorSection) botSelectorSection.style.display = 'none';
         hintGroup.style.display = 'none';
     } else if (mode === 'botvsbot') {
         p1Section.style.display = 'none';
         p2Section.style.display = 'none';
         botSpeedSection.style.display = 'block';
+        if (botSelectorSection) botSelectorSection.style.display = 'block';
         hintGroup.style.display = 'none';
     } else {
         p1Section.style.display = 'block';
         p2Section.style.display = 'none';
         botSpeedSection.style.display = 'none';
+        if (botSelectorSection) botSelectorSection.style.display = 'block';
         hintGroup.style.display = 'block';
     }
 
@@ -653,13 +661,38 @@ function setGameMode(mode) {
     });
 }
 
+function setSelectedBot(bot) {
+    selectedBot = bot;
+    const preview = document.getElementById('botSelectorPreview');
+    if (preview) {
+        if (bot === 'qbit_v01') {
+            const stats = qbitMarkov.getStats();
+            preview.innerHTML = `🧠 Learning bot — ${stats.totalWords} words learned, ${stats.totalTransitions} transitions`;
+        } else {
+            preview.textContent = '🤖 Classic API-based bot';
+        }
+    }
+}
+
+function clearBotMemory() {
+    if (confirm('Clear all Qbit v0.1 learned data? This cannot be undone.')) {
+        qbitMarkov.reset();
+        showToast('🧠 Bot memory cleared', 'info');
+        setSelectedBot(selectedBot); // Refresh preview
+    }
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // GAME START
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function startGame() {
+    // Read selected bot
+    const botSel = document.getElementById('botSelector');
+    if (botSel) selectedBot = botSel.value;
+
     if (gameMode === 'botvsbot') {
-        playerName = 'Qbit';
+        playerName = selectedBot === 'qbit_v01' ? 'Qbit v0.1' : 'Qbit';
         player2Name = 'QKnot';
         botSpeed = parseInt(document.getElementById('botSpeed').value) || 1500;
     } else {
@@ -729,7 +762,7 @@ function startGame() {
     }
 
     document.getElementById('streakDisplay').textContent = 0;
-    document.getElementById('pointsDisplay').textContent = '0 ৳';
+    document.getElementById('pointsDisplay').textContent = 0;
     document.getElementById('highScoreDisplay').textContent = highScore;
     document.getElementById('correctWordsCount').textContent = 0;
 
@@ -841,6 +874,8 @@ function processBotWord(word) {
     document.getElementById('correctWordsCount').textContent = totalCorrectWords;
     letterFreqTracker.recordLetter(word[0]);
     renderFreqChart();
+    // Markov learning from bot-vs-bot words
+    qbitMarkov.learn(word);
 
     const wordPoints = calculatePoints(word);
     pointsEarned += wordPoints;
@@ -876,7 +911,7 @@ function processBotWord(word) {
     }
 
     document.getElementById('streakDisplay').textContent = streakCount;
-    document.getElementById('pointsDisplay').textContent = (totalCorrectWords * 0.01491).toFixed(4) + ' ৳';
+    document.getElementById('pointsDisplay').textContent = pointsEarned;
 
     // Switch players
     currentPlayer = currentPlayer === 1 ? 2 : 1;
@@ -1063,6 +1098,21 @@ function renderFreqChart() {
 
 async function getQbitWord(lastLetter) {
     const cfg = getDiffConfig();
+    const effectiveMinLen = Math.max(cfg.minWordLength, customMinWordLength);
+
+    // ── Qbit v0.1 Markov strategy ──────────────────────────────────────
+    if (selectedBot === 'qbit_v01') {
+        // Try Markov word bank first
+        const markovWord = qbitMarkov.selectWord(lastLetter, usedWords, effectiveMinLen);
+        if (markovWord) {
+            console.log(`🧠 Qbit v0.1: Markov selected "${markovWord}" (${lastLetter} → ${markovWord[markovWord.length - 1]})`);
+            return markovWord;
+        }
+        // Fallback to API if word bank has no match
+        console.log(`🧠 Qbit v0.1: No Markov match for '${lastLetter}', falling back to API`);
+    }
+
+    // ── Classic Datamuse strategy ───────────────────────────────────────
     try {
         const response = await fetch(`https://api.datamuse.com/words?sp=${lastLetter}*&max=${cfg.qbitPoolSize}`);
         const data = await response.json();
@@ -1071,12 +1121,16 @@ async function getQbitWord(lastLetter) {
             .filter(word => !usedWords.has(word) && /^[a-z]+$/.test(word));
 
         // Enforce min word length for Qbit too
-        const effectiveMinLen = Math.max(cfg.minWordLength, customMinWordLength);
         if (effectiveMinLen > 1) {
             possibleWords = possibleWords.filter(word => word.length >= effectiveMinLen);
         }
 
         if (possibleWords.length === 0) return null;
+
+        // If Qbit v0.1, also learn any API words we discover
+        if (selectedBot === 'qbit_v01') {
+            possibleWords.forEach(w => qbitMarkov.learn(w));
+        }
 
         switch (cfg.qbitStrategy) {
             case 'random':
@@ -1085,10 +1139,6 @@ async function getQbitWord(lastLetter) {
                 possibleWords.sort((a, b) => b.length - a.length);
                 return possibleWords[0];
             case 'balanced':
-                // AI-balanced: use variance-minimized softmax to pick the word
-                // whose ending letter best balances the overall frequency distribution.
-                // This gives Qbit strategic foresight — it steers the game toward
-                // letters the player hasn't used much, creating balanced coverage.
                 const strategicWord = letterFreqTracker.selectStrategicWord(possibleWords);
                 if (strategicWord) {
                     console.log(`🧠 AI Balanced: chose "${strategicWord}" (ends with '${strategicWord[strategicWord.length - 1]}')`);
@@ -1171,6 +1221,8 @@ async function submitWord() {
     // Track player's starting letter for AI frequency balancing
     letterFreqTracker.recordLetter(word[0]);
     renderFreqChart();
+    // Markov learning — learn from every valid word across all modes
+    qbitMarkov.learn(word);
 
     const wordPoints = calculatePoints(word);
     pointsEarned += wordPoints;
@@ -1218,7 +1270,7 @@ async function submitWord() {
     }
 
     document.getElementById('streakDisplay').textContent = streakCount;
-    document.getElementById('pointsDisplay').textContent = (totalCorrectWords * 0.01491).toFixed(4) + ' ৳';
+    document.getElementById('pointsDisplay').textContent = pointsEarned;
 
     checkAchievements(word);
     checkPowerUpEarning();
@@ -1311,7 +1363,7 @@ async function getHint() {
         if (hints.length > 0) {
             showMessage(`💡 Try: ${hints.join(', ')}`, 'info');
             pointsEarned = Math.max(0, pointsEarned - cfg.hintCost);
-            document.getElementById('pointsDisplay').textContent = (totalCorrectWords * 0.01491).toFixed(4) + ' ৳';
+            document.getElementById('pointsDisplay').textContent = pointsEarned;
         } else {
             showMessage('No hints available!', 'warning');
         }
@@ -1362,12 +1414,15 @@ function handleQbitTurn(qbitWord) {
     if (qbitWord) {
         lastWord = qbitWord;
         usedWords.add(qbitWord);
-        gameHistory.push({ player: 'Qbit', word: qbitWord, points: 0 });
+        const qbitLabel = selectedBot === 'qbit_v01' ? 'Qbit v0.1' : 'Qbit';
+        gameHistory.push({ player: qbitLabel, word: qbitWord, points: 0 });
         // Track Qbit's starting letter for AI frequency balancing
         letterFreqTracker.recordLetter(qbitWord[0]);
         renderFreqChart();
+        // Markov learning — learn from Qbit's own words
+        qbitMarkov.learn(qbitWord);
         playQbitSound();
-        showMessage(`🤖 Qbit plays: <strong>${qbitWord}</strong>`, 'qbit');
+        showMessage(`🤖 ${qbitLabel} plays: <strong>${qbitWord}</strong>`, 'qbit');
         updateUsedWordsDisplay();
         resetTimer();
 
@@ -1376,7 +1431,8 @@ function handleQbitTurn(qbitWord) {
         wordInput.focus();
     } else {
         // Player wins
-        showMessage("🎉 Qbit couldn't find a word — You win!", 'success');
+        const qbitLabel = selectedBot === 'qbit_v01' ? 'Qbit v0.1' : 'Qbit';
+        showMessage(`🎉 ${qbitLabel} couldn't find a word — You win!`, 'success');
         gameActive = false;
         clearInterval(timerInterval);
         playWinSound();
@@ -1600,7 +1656,126 @@ function updateDifficultyPreview() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// TABS (leaderboard / stats)
+// QBIT BRAIN — Transition Matrix & Word Bank Visualization
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function renderQbitBrain() {
+    const stats = qbitMarkov.getStats();
+    const matrix = qbitMarkov.matrix;
+    const wordBank = qbitMarkov.wordBank;
+
+    // ── Stats summary ──
+    const brainStatsEl = document.getElementById('brainStats');
+    if (brainStatsEl) {
+        brainStatsEl.innerHTML = `
+            <div class="brain-stats-grid">
+                <div class="brain-stat">
+                    <div class="brain-stat-value">${stats.totalWords}</div>
+                    <div class="brain-stat-label">Words</div>
+                </div>
+                <div class="brain-stat">
+                    <div class="brain-stat-value">${stats.totalTransitions}</div>
+                    <div class="brain-stat-label">Transitions</div>
+                </div>
+                <div class="brain-stat">
+                    <div class="brain-stat-value">${stats.topTransitions.length > 0 ? stats.topTransitions[0].from + '→' + stats.topTransitions[0].to : '—'}</div>
+                    <div class="brain-stat-label">Top Pair</div>
+                </div>
+            </div>
+        `;
+    }
+
+    // ── 2D Transition Matrix Heatmap ──
+    const matrixContainer = document.getElementById('matrixContainer');
+    if (matrixContainer) {
+        // Find max value for color scaling
+        let maxVal = 0;
+        for (let i = 0; i < 26; i++) {
+            for (let j = 0; j < 26; j++) {
+                if (matrix[i][j] > maxVal) maxVal = matrix[i][j];
+            }
+        }
+
+        if (maxVal === 0) {
+            matrixContainer.innerHTML = '<span class="empty-state">No data yet — play some games!</span>';
+        } else {
+            let html = '<table class="matrix-table">';
+
+            // Header row — ending letters
+            html += '<thead><tr><th class="matrix-corner">↘</th>';
+            for (let j = 0; j < 26; j++) {
+                html += `<th class="matrix-header">${String.fromCharCode(65 + j)}</th>`;
+            }
+            html += '</tr></thead><tbody>';
+
+            // Data rows
+            for (let i = 0; i < 26; i++) {
+                const firstLetter = String.fromCharCode(65 + i);
+                html += `<tr><th class="matrix-row-header">${firstLetter}</th>`;
+                for (let j = 0; j < 26; j++) {
+                    const val = matrix[i][j];
+                    const intensity = maxVal > 0 ? val / maxVal : 0;
+                    const lastLetter = String.fromCharCode(97 + j);
+                    const title = `${firstLetter.toLowerCase()}→${lastLetter}: ${val}`;
+
+                    let cellClass = 'matrix-cell';
+                    let bg = '';
+                    if (val > 0) {
+                        // Color gradient: low=deep blue/purple → high=bright cyan
+                        const hue = 220 + (180 * intensity); // 220 (blue) → 400 (wraps to ~40 warm)
+                        const sat = 60 + (30 * intensity);
+                        const light = 15 + (45 * intensity);
+                        const alpha = 0.3 + (0.7 * intensity);
+                        bg = `background: hsla(${hue % 360}, ${sat}%, ${light}%, ${alpha});`;
+                        if (intensity > 0.8) cellClass += ' matrix-cell-hot';
+                    }
+
+                    html += `<td class="${cellClass}" style="${bg}" title="${title}">${val > 0 ? val : ''}</td>`;
+                }
+                html += '</tr>';
+            }
+
+            html += '</tbody></table>';
+            matrixContainer.innerHTML = html;
+        }
+    }
+
+    // ── Word Bank ──
+    const wordBankContainer = document.getElementById('wordBankContainer');
+    const wordBankCount = document.getElementById('wordBankCount');
+    if (wordBankContainer) {
+        let totalWords = 0;
+        let html = '';
+
+        for (let i = 0; i < 26; i++) {
+            const key = String.fromCharCode(97 + i);
+            const words = wordBank[key] || [];
+            if (words.length === 0) continue;
+            totalWords += words.length;
+
+            html += `<div class="wordbank-group">`;
+            html += `<div class="wordbank-letter">${key.toUpperCase()} <span class="wordbank-letter-count">(${words.length})</span></div>`;
+            html += `<div class="wordbank-words">`;
+            words.forEach(w => {
+                html += `<span class="wordbank-word">${w}</span>`;
+            });
+            html += `</div></div>`;
+        }
+
+        if (totalWords === 0) {
+            wordBankContainer.innerHTML = '<span class="empty-state">No words learned yet</span>';
+        } else {
+            wordBankContainer.innerHTML = html;
+        }
+
+        if (wordBankCount) {
+            wordBankCount.textContent = totalWords > 0 ? `(${totalWords} words)` : '';
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TABS (leaderboard / stats / qbit brain)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function switchTab(tabName) {
@@ -1610,6 +1785,10 @@ function switchTab(tabName) {
     document.querySelectorAll('.tab-panel').forEach(panel => {
         panel.style.display = panel.id === `${tabName}Panel` ? 'block' : 'none';
     });
+    // Render brain panel on demand
+    if (tabName === 'qbitBrain') {
+        renderQbitBrain();
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1641,6 +1820,13 @@ document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('.mode-tab').forEach(tab => {
         tab.addEventListener('click', () => setGameMode(tab.dataset.mode));
     });
+
+    // Bot selector
+    const botSelector = document.getElementById('botSelector');
+    if (botSelector) {
+        botSelector.addEventListener('change', () => setSelectedBot(botSelector.value));
+        setSelectedBot(botSelector.value);
+    }
 
     // Tab buttons
     document.querySelectorAll('.tab-btn').forEach(btn => {
