@@ -67,8 +67,28 @@
                 <select id="botSelector">
                     <option value="classic">🤖 Qbit Classic</option>
                     <option value="qbit_v01">🧠 Qbit v0.1 (Learning)</option>
+                    <option value="qbit_v02">⚡ Qbit v0.2 (Weighted Greedy)</option>
                 </select>
                 <div id="botSelectorPreview" class="field-preview">🤖 Classic API-based bot</div>
+            </div>
+
+            <div id="botVsBotSelectorSection" style="display:none">
+                <div class="form-group">
+                    <label for="bot1Selector">🤖 Bot 1</label>
+                    <select id="bot1Selector">
+                        <option value="classic">🤖 Qbit Classic</option>
+                        <option value="qbit_v01">🧠 Qbit v0.1 (Learning)</option>
+                        <option value="qbit_v02">⚡ Qbit v0.2 (Weighted Greedy)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="bot2Selector">🤖 Bot 2</label>
+                    <select id="bot2Selector">
+                        <option value="classic">🤖 Qbit Classic</option>
+                        <option value="qbit_v01">🧠 Qbit v0.1 (Learning)</option>
+                        <option value="qbit_v02" selected>⚡ Qbit v0.2 (Weighted Greedy)</option>
+                    </select>
+                </div>
             </div>
 
             <div class="form-group" id="trainingSourceSection" style="display:none">
@@ -309,6 +329,7 @@
 
     <script src="aiLetterSelector.js"></script>
     <script src="qbitMarkov.js"></script>
+    <script src="qbitWeightedGreedy.js"></script>
     <script src="script.js"></script>
 </body>
 

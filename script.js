@@ -42,7 +42,10 @@ const letterFreqTracker = new LetterFrequencyTracker();
 
 // Qbit v0.1 Markov Chain learning bot
 const qbitMarkov = new QbitMarkov();
-let selectedBot = 'classic'; // 'classic' or 'qbit_v01'
+const qbitWeightedGreedy = new QbitWeightedGreedy();
+let selectedBot = 'classic'; // 'classic', 'qbit_v01', or 'qbit_v02'
+let selectedBot1 = 'classic'; // Bot 1 for botvsbot mode
+let selectedBot2 = 'qbit_v02'; // Bot 2 for botvsbot mode
 
 // Training data source for Qbit v0.1: 'user', 'bot', or 'both'
 let qbitTrainingSource = localStorage.getItem('qbitTrainingSource') || 'both';
@@ -652,24 +655,28 @@ function setGameMode(mode) {
     const hintGroup = document.getElementById('hintGroup');
     const botSpeedSection = document.getElementById('botSpeedSection');
     const botSelectorSection = document.getElementById('botSelectorSection');
+    const botVsBotSelectorSection = document.getElementById('botVsBotSelectorSection');
 
     if (mode === 'pvp') {
         p1Section.style.display = 'block';
         p2Section.style.display = 'block';
         botSpeedSection.style.display = 'none';
         if (botSelectorSection) botSelectorSection.style.display = 'none';
+        if (botVsBotSelectorSection) botVsBotSelectorSection.style.display = 'none';
         hintGroup.style.display = 'none';
     } else if (mode === 'botvsbot') {
         p1Section.style.display = 'none';
         p2Section.style.display = 'none';
         botSpeedSection.style.display = 'block';
-        if (botSelectorSection) botSelectorSection.style.display = 'block';
+        if (botSelectorSection) botSelectorSection.style.display = 'none';
+        if (botVsBotSelectorSection) botVsBotSelectorSection.style.display = 'block';
         hintGroup.style.display = 'none';
     } else {
         p1Section.style.display = 'block';
         p2Section.style.display = 'none';
         botSpeedSection.style.display = 'none';
         if (botSelectorSection) botSelectorSection.style.display = 'block';
+        if (botVsBotSelectorSection) botVsBotSelectorSection.style.display = 'none';
         hintGroup.style.display = 'block';
     }
 
@@ -684,14 +691,17 @@ function setSelectedBot(bot) {
     const preview = document.getElementById('botSelectorPreview');
     const trainingSection = document.getElementById('trainingSourceSection');
     if (preview) {
-        if (bot === 'qbit_v01') {
+        if (bot === 'qbit_v02') {
+            const stats = qbitMarkov.getStats();
+            preview.innerHTML = `⚡ Weighted Greedy — ${stats.totalWords} words learned, ${stats.totalTransitions} transitions`;
+        } else if (bot === 'qbit_v01') {
             const stats = qbitMarkov.getStats();
             preview.innerHTML = `🧠 Learning bot — ${stats.totalWords} words learned, ${stats.totalTransitions} transitions`;
         } else {
             preview.textContent = '🤖 Classic API-based bot';
         }
     }
-    // Always show training source — Classic games also train Qbit v0.1
+    // Always show training source — Classic games also train Qbit v0.1/v0.2
     if (trainingSection) trainingSection.style.display = 'block';
 }
 
@@ -707,6 +717,15 @@ function setTrainingSource(source) {
         };
         preview.textContent = labels[source] || labels.both;
     }
+}
+
+function getBotDisplayName(botId) {
+    const names = {
+        'classic': 'Qbit Classic',
+        'qbit_v01': 'Qbit v0.1',
+        'qbit_v02': 'Qbit v0.2'
+    };
+    return names[botId] || 'Qbit';
 }
 
 function clearBotMemory() {
@@ -727,8 +746,18 @@ function startGame() {
     if (botSel) selectedBot = botSel.value;
 
     if (gameMode === 'botvsbot') {
-        playerName = selectedBot === 'qbit_v01' ? 'Qbit v0.1' : 'Qbit';
-        player2Name = 'QKnot';
+        // Read both bot selectors
+        const bot1Sel = document.getElementById('bot1Selector');
+        const bot2Sel = document.getElementById('bot2Selector');
+        if (bot1Sel) selectedBot1 = bot1Sel.value;
+        if (bot2Sel) selectedBot2 = bot2Sel.value;
+        playerName = getBotDisplayName(selectedBot1);
+        player2Name = getBotDisplayName(selectedBot2);
+        // If both bots have the same name, disambiguate
+        if (playerName === player2Name) {
+            playerName += ' (1)';
+            player2Name = player2Name.replace(/ \(1\)$/, '') + ' (2)';
+        }
         botSpeed = parseInt(document.getElementById('botSpeed').value) || 1500;
     } else {
         const name = document.getElementById('playerName').value.trim();
@@ -828,6 +857,8 @@ function startGame() {
 
 async function startBotGame() {
     // Pick a random starting letter for the first move
+    // Set active bot for player 1's first turn
+    selectedBot = selectedBot1;
     const startLetter = String.fromCharCode(97 + Math.floor(Math.random() * 26));
     showMessage(`🤖 ${playerName} starts — looking for a word starting with '${startLetter.toUpperCase()}'...`, 'info');
 
@@ -849,6 +880,8 @@ async function startBotGame() {
 async function playBotTurn() {
     if (!gameActive) return;
 
+    // Set active bot for this turn
+    selectedBot = currentPlayer === 1 ? selectedBot1 : selectedBot2;
     const currentBotName = currentPlayer === 1 ? playerName : player2Name;
     let startLetter = lastWord[lastWord.length - 1];
     let chainBroken = false;
@@ -1134,6 +1167,17 @@ function renderFreqChart() {
 async function getQbitWord(lastLetter) {
     const cfg = getDiffConfig();
     const effectiveMinLen = Math.max(cfg.minWordLength, customMinWordLength);
+
+    // ── Qbit v0.2 Weighted Greedy strategy ──────────────────────────────
+    if (selectedBot === 'qbit_v02') {
+        const greedyWord = qbitWeightedGreedy.selectWord(lastLetter, usedWords, effectiveMinLen, qbitMarkov);
+        if (greedyWord) {
+            console.log(`⚡ Qbit v0.2: Weighted Greedy selected "${greedyWord}" (${lastLetter} → ${greedyWord[greedyWord.length - 1]})`);
+            return greedyWord;
+        }
+        console.log(`⚡ Qbit v0.2: No match for '${lastLetter}' — giving up`);
+        return null;
+    }
 
     // ── Qbit v0.1 Markov strategy ──────────────────────────────────────
     if (selectedBot === 'qbit_v01') {
@@ -1460,7 +1504,7 @@ function handleQbitTurn(qbitWord) {
     if (qbitWord) {
         lastWord = qbitWord;
         usedWords.add(qbitWord);
-        const qbitLabel = selectedBot === 'qbit_v01' ? 'Qbit v0.1' : 'Qbit';
+        const qbitLabel = selectedBot === 'qbit_v02' ? 'Qbit v0.2' : selectedBot === 'qbit_v01' ? 'Qbit v0.1' : 'Qbit';
         gameHistory.push({ player: qbitLabel, word: qbitWord, points: 0 });
         // Track Qbit's starting letter for AI frequency balancing
         letterFreqTracker.recordLetter(qbitWord[0]);
@@ -1477,7 +1521,7 @@ function handleQbitTurn(qbitWord) {
         wordInput.focus();
     } else {
         // Player wins
-        const qbitLabel = selectedBot === 'qbit_v01' ? 'Qbit v0.1' : 'Qbit';
+        const qbitLabel = selectedBot === 'qbit_v02' ? 'Qbit v0.2' : selectedBot === 'qbit_v01' ? 'Qbit v0.1' : 'Qbit';
         showMessage(`🎉 ${qbitLabel} couldn't find a word — You win!`, 'success');
         gameActive = false;
         clearInterval(timerInterval);

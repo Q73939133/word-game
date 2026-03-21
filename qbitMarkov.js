@@ -88,7 +88,7 @@ class QbitMarkov {
         }
 
         // Compute probabilities for each ending letter
-        const probabilities = row.map(count => count / rowTotal);
+        const probabilities = row.map(count => (count + 1) / (rowTotal + 26));
 
         // Rank ending letters by ascending probability (greedy min)
         const ranked = [];
