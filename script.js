@@ -1865,6 +1865,112 @@ function renderQbitBrain() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// QBIT v0.2 BRAIN — Weighted Greedy Scoring Visualization
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function renderQbitV02Brain() {
+    const matrix = qbitMarkov.matrix;
+    const wordBank = qbitMarkov.wordBank;
+    const stats = qbitMarkov.getStats();
+    const wg = qbitWeightedGreedy;
+
+    // ── Stats summary ──
+    const statsEl = document.getElementById('v02BrainStats');
+    if (statsEl) {
+        statsEl.innerHTML = `
+            <div class="brain-stats-grid">
+                <div class="brain-stat">
+                    <div class="brain-stat-value">${stats.totalWords}</div>
+                    <div class="brain-stat-label">Words</div>
+                </div>
+                <div class="brain-stat">
+                    <div class="brain-stat-value">${stats.totalTransitions}</div>
+                    <div class="brain-stat-label">Transitions</div>
+                </div>
+                <div class="brain-stat">
+                    <div class="brain-stat-value">Greedy</div>
+                    <div class="brain-stat-label">Strategy</div>
+                </div>
+            </div>
+        `;
+    }
+
+    // ── Weight Configuration ──
+    const weightsEl = document.getElementById('v02WeightsDisplay');
+    if (weightsEl) {
+        weightsEl.innerHTML = `
+            <div class="brain-stat">
+                <div class="brain-stat-value" style="color:#f472b6">${(wg.w1 * 100).toFixed(0)}%</div>
+                <div class="brain-stat-label">Rarity</div>
+            </div>
+            <div class="brain-stat">
+                <div class="brain-stat-value" style="color:#60a5fa">${(wg.w2 * 100).toFixed(0)}%</div>
+                <div class="brain-stat-label">Difficulty</div>
+            </div>
+            <div class="brain-stat">
+                <div class="brain-stat-value" style="color:#4ade80">${(wg.w3 * 100).toFixed(0)}%</div>
+                <div class="brain-stat-label">Random</div>
+            </div>
+        `;
+    }
+
+    // ── Scoring Simulation (top 3 picks per letter) ──
+    const container = document.getElementById('v02ScoringContainer');
+    if (!container) return;
+
+    if (stats.totalWords === 0) {
+        container.innerHTML = '<span class="empty-state">No data yet — play some games!</span>';
+        return;
+    }
+
+    let html = '';
+    for (let i = 0; i < 26; i++) {
+        const letter = String.fromCharCode(97 + i);
+        const available = (wordBank[letter] || []).filter(w => /^[a-z]+$/.test(w));
+        if (available.length === 0) continue;
+
+        const row = matrix[i];
+        const rowTotal = row.reduce((s, v) => s + v, 0);
+
+        // Score each word
+        const scored = available.map(word => {
+            const lastChar = word[word.length - 1];
+            const lastIdx = lastChar.charCodeAt(0) - 97;
+            const count = row[lastIdx] || 0;
+            const probability = rowTotal > 0 ? count / rowTotal : 0;
+            const rarityScore = 1 / (probability + 0.01);
+            const opponentOptions = (wordBank[lastChar] || []).length;
+            const difficultyScore = 1 / (opponentOptions + 1);
+            const finalScore = (wg.w1 * rarityScore) + (wg.w2 * difficultyScore);
+            return { word, rarityScore, difficultyScore, finalScore, probability, opponentOptions };
+        });
+
+        scored.sort((a, b) => b.finalScore - a.finalScore);
+        const top3 = scored.slice(0, 3);
+
+        html += `<div class="wordbank-group">`;
+        html += `<div class="wordbank-letter">${letter.toUpperCase()} <span class="wordbank-letter-count">(${available.length} words)</span></div>`;
+        html += `<div class="v02-scoring-list">`;
+        top3.forEach((item, rank) => {
+            const barWidth = scored[0].finalScore > 0 ? (item.finalScore / scored[0].finalScore) * 100 : 0;
+            html += `<div class="v02-score-item">`;
+            html += `<div class="v02-score-rank">${rank + 1}</div>`;
+            html += `<div class="v02-score-details">`;
+            html += `<div class="v02-score-word">${item.word}</div>`;
+            html += `<div class="v02-score-bar-bg"><div class="v02-score-bar" style="width:${barWidth}%"></div></div>`;
+            html += `<div class="v02-score-breakdown">`;
+            html += `<span class="v02-tag v02-tag-rarity" title="Rarity score">R:${item.rarityScore.toFixed(1)}</span>`;
+            html += `<span class="v02-tag v02-tag-diff" title="Difficulty (opponent options: ${item.opponentOptions})">D:${item.difficultyScore.toFixed(2)}</span>`;
+            html += `<span class="v02-tag v02-tag-score" title="Final score (excl. random)">= ${item.finalScore.toFixed(2)}</span>`;
+            html += `</div></div></div>`;
+        });
+        html += `</div></div>`;
+    }
+
+    container.innerHTML = html;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // TABS (leaderboard / stats / qbit brain)
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -1878,6 +1984,9 @@ function switchTab(tabName) {
     // Render brain panel on demand
     if (tabName === 'qbitBrain') {
         renderQbitBrain();
+    }
+    if (tabName === 'qbitV02Brain') {
+        renderQbitV02Brain();
     }
 }
 

@@ -143,7 +143,8 @@
             <div class="info-tabs">
                 <button class="tab-btn active" data-tab="leaderboard">🏆 Leaderboard</button>
                 <button class="tab-btn" data-tab="stats">📊 Stats</button>
-                <button class="tab-btn" data-tab="qbitBrain">🧠 Qbit Brain</button>
+                <button class="tab-btn" data-tab="qbitBrain">🧠 v0.1 Brain</button>
+                <button class="tab-btn" data-tab="qbitV02Brain">⚡ v0.2 Brain</button>
             </div>
 
             <!-- Leaderboard Panel -->
@@ -196,6 +197,21 @@
                     <div class="wordbank-container" id="wordBankContainer">
                         <span class="empty-state">No words learned yet</span>
                     </div>
+                </div>
+            </div>
+
+            <!-- Qbit v0.2 Brain Panel -->
+            <div class="tab-panel" id="qbitV02BrainPanel" style="display:none">
+                <div class="brain-stats" id="v02BrainStats"></div>
+                <div class="brain-section">
+                    <div class="brain-section-title">⚡ Weighted Greedy Scoring <span class="brain-subtitle">(top picks per starting letter)</span></div>
+                    <div id="v02ScoringContainer">
+                        <span class="empty-state">No data yet — play some games!</span>
+                    </div>
+                </div>
+                <div class="brain-section">
+                    <div class="brain-section-title">⚖️ Weight Configuration</div>
+                    <div id="v02WeightsDisplay" class="brain-stats-grid"></div>
                 </div>
             </div>
         </div>

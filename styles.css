@@ -507,6 +507,116 @@ select {
   color: #fff;
 }
 
+/* ─── Qbit v0.2 Brain — Scoring Visualization ─────────────────────────────── */
+.v02-scoring-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.v02-score-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 6px;
+  transition: background 0.2s;
+}
+
+.v02-score-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.v02-score-rank {
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  font-size: 0.65rem;
+  font-weight: 800;
+  background: rgba(99, 102, 241, 0.2);
+  color: var(--primary);
+  flex-shrink: 0;
+}
+
+.v02-score-item:first-child .v02-score-rank {
+  background: linear-gradient(135deg, var(--primary), var(--accent));
+  color: #fff;
+}
+
+.v02-score-details {
+  flex: 1;
+  min-width: 0;
+}
+
+.v02-score-word {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 3px;
+}
+
+.v02-score-bar-bg {
+  height: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 2px;
+  margin-bottom: 4px;
+  overflow: hidden;
+}
+
+.v02-score-bar {
+  height: 100%;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--primary), var(--accent));
+  transition: width 0.4s ease;
+}
+
+.v02-score-breakdown {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.v02-tag {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 0.6rem;
+  font-weight: 700;
+  font-family: var(--font);
+}
+
+.v02-tag-rarity {
+  background: rgba(244, 114, 182, 0.15);
+  color: #f472b6;
+  border: 1px solid rgba(244, 114, 182, 0.25);
+}
+
+.v02-tag-diff {
+  background: rgba(96, 165, 250, 0.15);
+  color: #60a5fa;
+  border: 1px solid rgba(96, 165, 250, 0.25);
+}
+
+.v02-tag-score {
+  background: rgba(74, 222, 128, 0.15);
+  color: #4ade80;
+  border: 1px solid rgba(74, 222, 128, 0.25);
+}
+
+#v02ScoringContainer {
+  max-height: 400px;
+  overflow-y: auto;
+  border: var(--glass-border);
+  border-radius: var(--radius-sm);
+  background: rgba(0, 0, 0, 0.15);
+  padding: 10px;
+}
+
 /* ─── Buttons ─────────────────────────────────────────────────────────────── */
 button,
 .btn {
