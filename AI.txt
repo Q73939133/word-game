@@ -1,0 +1,22 @@
+1. Weighted Greedy (Best Easy Upgrade)
+2. Minimax (Game AI) — BEST FOR WINNING
+3. Alpha-Beta Pruning (Optimized Minimax)
+4. Monte Carlo Tree Search (MCTS) — Best for Hard/Very Hard
+5. Reinforcement Learning (Advanced)
+6. Neural Network (Deep Learning) — Ultimate AI
+
+
+1. Weighted Greedy
+score = rarity + difficulty + randomness 
+probability = count / total 
+rarityScore = 1 / (probability + 0.01)
+opponentOptions = wordBank[lastLetter].length
+difficultyScore = 1 / (opponentOptions + 1)
+randomScore = Math.random() * 0.1
+score =
+    (w1 * rarityScore) +
+    (w2 * difficultyScore) +
+    (w3 * randomScore);
+w1 = 0.6  // rarity
+w2 = 0.35 // difficulty
+w3 = 0.05 // randomness
